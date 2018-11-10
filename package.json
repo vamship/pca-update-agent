@@ -1,6 +1,6 @@
 {
     "name": "@vamship/pca-update-agent",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Updates software on a kubernetes cluster using helm based on a manifest",
     "bin": {
         "pca-update": "dist/bin/pca-update-agent.js"
