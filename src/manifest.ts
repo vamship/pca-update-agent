@@ -85,8 +85,13 @@ export default class Manifest {
                     throw new Error('Error parsing manifest file');
                 }
 
-                this._logger.trace('Manifest data', { manifestData });
-                _checkManifestSchema(manifestData, true);
+                try {
+                    this._logger.trace('Manifest data', { manifestData });
+                    _checkManifestSchema(manifestData, true);
+                } catch (ex) {
+                    this._logger.error(ex, 'Manifest file validation failed');
+                    throw ex;
+                }
 
                 this._installRecords = manifestData.installRecords;
                 this._uninstallRecords = manifestData.uninstallRecords;
