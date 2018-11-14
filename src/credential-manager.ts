@@ -264,7 +264,7 @@ export default class CredentialManager {
         if (typeof namespace !== 'undefined') {
             args.push(`--namespace=${namespace}`);
         }
-        [serviceAccount, `-p='${patch}'`].forEach((arg) => args.push(arg));
+        [serviceAccount, `-p=${patch}`].forEach((arg) => args.push(arg));
 
         this._logger.trace('Patch service account args', {
             args

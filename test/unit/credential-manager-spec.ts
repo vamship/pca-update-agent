@@ -780,7 +780,7 @@ describe('CredentialManager', () => {
                 'serviceaccount',
                 `--namespace=${namespace}`,
                 serviceAccount,
-                `-p='${patch}'`
+                `-p=${patch}`
             ]);
         });
 
