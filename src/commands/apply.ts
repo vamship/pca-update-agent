@@ -312,7 +312,7 @@ export const handler = (argv) => {
                         result[key] = {
                             namespace,
                             secretName,
-                            credential
+                            credentials: credential
                         };
                     }
                     return result;

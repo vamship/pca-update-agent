@@ -267,7 +267,7 @@ describe('[apply command]', () => {
                         result[key] = {
                             secretName,
                             namespace,
-                            credential
+                            credentials: credential
                         };
                     }
                     return result;
