@@ -358,6 +358,15 @@ export const handler = (argv) => {
                 serviceAccounts
             });
 
+            const count = serviceAccounts.length;
+
+            _logger.info('Applying kubernetes secrets', {
+                count
+            });
+            reporter.log(
+                `Applying kubernetes secrets to ${count} service accounts`
+            );
+
             return _applyImagePullSecrets(credentialManager, serviceAccounts);
         })
         .then(() => {
