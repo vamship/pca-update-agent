@@ -15,7 +15,11 @@ import {
     testValues as _testValues
 } from '@vamship/test-utils';
 
-import { IChartInstallRecord } from '../../../src/types';
+import {
+    IChartInstallRecord,
+    IContainerCredentials,
+    IPrivateContainerRepoRecord
+} from '../../../src/types';
 const _commandModule = _rewire('../../../src/commands/apply');
 const { ArgError } = _args;
 
@@ -59,11 +63,12 @@ describe('[apply command]', () => {
         _manifestMock = new ObjectMock().addPromiseMock('load');
         _manifestMock.instance.installRecords = [];
         _manifestMock.instance.uninstallRecords = [];
-        _manifestMock.instance.containerRepositories = [];
+        _manifestMock.instance.privateContainerRepos = [];
 
-        _credentialManagerMock = new ObjectMock().addPromiseMock(
-            'applyCredentials'
-        );
+        _credentialManagerMock = new ObjectMock()
+            .addPromiseMock('fetchContainerCredentials')
+            .addPromiseMock('createImagePullSecret')
+            .addPromiseMock('applyImagePullSecrets');
 
         _helmMock = new ObjectMock()
             .addPromiseMock('install')
@@ -152,12 +157,40 @@ describe('[apply command]', () => {
     });
 
     describe('[execution]', () => {
-        function _getRepoList(size: number): string[] {
-            return new Array(size)
+        function _getPrivateContainerRepos(
+            size: number
+        ): IPrivateContainerRepoRecord[] {
+            const serviceAccountCount = 2;
+            const namespaceCount = 2;
+
+            const serviceAccounts = new Array(serviceAccountCount)
                 .fill(0)
-                .map((item, index) =>
-                    _testValues.getString(`containerRepository${index}`)
-                );
+                .map((item, index) => `serviceAccount_${index}`);
+            const namespaces = new Array(namespaceCount)
+                .fill(0)
+                .map((item, index) => `namespace_${index}`);
+
+            return new Array(size).fill(0).map((item, index) => {
+                const repoUri = `containerRepository_${index}`;
+                const targets = serviceAccounts
+                    .map((serviceAccount) => {
+                        return namespaces.map((namespace) => {
+                            return {
+                                secretName: `secretName_${repoUri}`,
+                                serviceAccount,
+                                namespace
+                            };
+                        });
+                    })
+                    .reduce((result, targetArr) => {
+                        return result.concat(targetArr);
+                    }, []);
+
+                return {
+                    repoUri,
+                    targets
+                };
+            });
         }
 
         function _getUninstallRecords(size: number): string[] {
@@ -186,13 +219,15 @@ describe('[apply command]', () => {
         function _bulkComplete(
             mock: any,
             recordCount: number,
-            failIndex: number = -1
+            failIndex: number = -1,
+            resolver: () => any = () => undefined
         ): Promise<any> {
             const promises: any[] = [];
+
             for (let index = 0; index < recordCount; index++) {
                 let promise;
                 if (index !== failIndex) {
-                    promise = mock.resolve(undefined, index);
+                    promise = mock.resolve(resolver(), index);
                 } else {
                     promise = mock
                         .reject('something went wrong!', index)
@@ -204,6 +239,72 @@ describe('[apply command]', () => {
                 promises.push(promise);
             }
             return Promise.all(promises);
+        }
+
+        function _generateCredentials(): IContainerCredentials {
+            return {
+                server: _testValues.getString('server'),
+                username: _testValues.getString('username'),
+                password: _testValues.getString('password'),
+                email: _testValues.getString('email')
+            };
+        }
+
+        function _buildSecretList(
+            credentials: IContainerCredentials[],
+            repos: IPrivateContainerRepoRecord[]
+        ): Array<{
+            secretName: string;
+            credentials: IContainerCredentials;
+            namespace?: string;
+        }> {
+            const secretMap = {};
+            credentials.forEach((credential, index) => {
+                repos[index].targets.reduce((result, target) => {
+                    const { namespace, secretName } = target;
+                    const key = `${namespace}_${secretName}`;
+                    if (!result[key]) {
+                        result[key] = {
+                            secretName,
+                            namespace,
+                            credential
+                        };
+                    }
+                    return result;
+                }, secretMap);
+            });
+            return Object.keys(secretMap).map((key) => secretMap[key]);
+        }
+
+        function _buildServiceAccountList(
+            repos: IPrivateContainerRepoRecord[]
+        ): Array<{
+            serviceAccount: string;
+            namespace?: string;
+            secrets: string[];
+        }> {
+            const serviceAccountMap = {};
+
+            repos.forEach((repo) => {
+                repo.targets.forEach(
+                    ({ namespace, serviceAccount, secretName }) => {
+                        const key = `${namespace}_${serviceAccount}`;
+                        let bucket = serviceAccountMap[key];
+                        if (!bucket) {
+                            bucket = {
+                                serviceAccount,
+                                namespace,
+                                secrets: []
+                            };
+                            serviceAccountMap[key] = bucket;
+                        }
+                        bucket.secrets.push(secretName);
+                    }
+                );
+            });
+            return Object.keys(serviceAccountMap).map(
+                (key) => serviceAccountMap[key]
+            );
         }
 
         it('should return a promise when invoked', () => {
@@ -316,15 +417,15 @@ describe('[apply command]', () => {
                 });
         });
 
-        it('should initialize credentials for every repository identified in the manifest', () => {
-            const applyCredentialsMethod =
-                _credentialManagerMock.mocks.applyCredentials;
+        it('should fetch credentials for every repository identified in the manifest', () => {
+            const fetchCredentialsMethod =
+                _credentialManagerMock.mocks.fetchContainerCredentials;
 
             const repoCount = _testValues.getNumber(10, 5);
-            const expectedRepos = _getRepoList(repoCount);
-            _manifestMock.instance.containerRepositories = expectedRepos;
+            const expectedRepos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = expectedRepos;
 
-            expect(applyCredentialsMethod.stub).to.not.have.been.called;
+            expect(fetchCredentialsMethod.stub).to.not.have.been.called;
 
             _execHandler();
 
@@ -332,31 +433,27 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(_asyncHelper.wait(10))
                 .then(() => {
-                    expect(applyCredentialsMethod.stub).to.have.been.called;
-                    expect(applyCredentialsMethod.stub.callCount).to.equal(
+                    expect(fetchCredentialsMethod.stub).to.have.been.called;
+                    expect(fetchCredentialsMethod.stub.callCount).to.equal(
                         expectedRepos.length
                     );
 
                     expectedRepos.forEach((repo, index) => {
-                        const [
-                            kind,
-                            resourceId
-                        ] = applyCredentialsMethod.stub.args[index];
-
-                        expect(kind).to.equal('container');
-                        expect(resourceId).to.equal(repo);
+                        expect(
+                            fetchCredentialsMethod.stub.args[index][0]
+                        ).to.equal(repo.repoUri);
                     });
                 });
         });
 
-        it('should report failure and reject the promise if any one of the credential initializations fails', () => {
+        it('should report failure and reject the promise if any one of the credential fetches fails', () => {
             const failMethod = _reporterMock.mocks.fail;
             const flushMethod = _reporterMock.mocks.flush;
 
             const failIndex = _testValues.getNumber(10, 5);
-            const expectedRepos = _getRepoList(failIndex * 2);
-            _manifestMock.instance.containerRepositories = expectedRepos;
-            const expectedError = 'Error applying resource credentials';
+            const expectedRepos = _getPrivateContainerRepos(failIndex * 2);
+            _manifestMock.instance.privateContainerRepos = expectedRepos;
+            const expectedError = 'Error fetching container credentials';
 
             expect(failMethod.stub).to.not.have.been.called;
             expect(flushMethod.stub).to.not.have.been.called;
@@ -371,8 +468,210 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         failIndex * 2,
+                        failIndex
+                    );
+                })
+                .then(() => {
+                    return _reporterMock.mocks.flush.resolve();
+                })
+                .then(() => {
+                    return expect(ret)
+                        .to.be.rejectedWith(expectedError)
+                        .then(() => {
+                            expect(failMethod.stub).to.have.been.calledOnce;
+                            expect(flushMethod.stub).to.have.been.calledOnce;
+                        });
+                });
+        });
+
+        it('should create secrets for every target specified', () => {
+            const createImagePullSecretMethod =
+                _credentialManagerMock.mocks.createImagePullSecret;
+
+            const repoCount = _testValues.getNumber(10, 5);
+            const expectedRepos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = expectedRepos;
+
+            expect(createImagePullSecretMethod.stub).to.not.have.been.called;
+
+            _execHandler();
+
+            return _manifestMock.mocks.load
+                .resolve()
+                .then(() => {
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
+                        repoCount,
+                        -1,
+                        _generateCredentials
+                    );
+                })
+                .then((credentials) => {
+                    const expectedSecrets = _buildSecretList(
+                        credentials,
+                        expectedRepos
+                    );
+
+                    expect(createImagePullSecretMethod.stub).to.have.been
+                        .called;
+                    expect(createImagePullSecretMethod.stub.callCount).to.equal(
+                        expectedSecrets.length
+                    );
+
+                    expectedSecrets.forEach((secret, index) => {
+                        const args =
+                            createImagePullSecretMethod.stub.args[index];
+                        expect(args[0]).to.equal(secret.secretName);
+                        expect(args[1]).to.deep.equal(secret.credentials);
+                        expect(args[2]).to.deep.equal(secret.namespace);
+                    });
+                });
+        });
+
+        it('should report failure and reject the promise if any one of the secret creations fails', () => {
+            const failMethod = _reporterMock.mocks.fail;
+            const flushMethod = _reporterMock.mocks.flush;
+
+            const repoCount = _testValues.getNumber(10, 5);
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
+            const expectedError = 'Error creating image pull secrets';
+
+            expect(failMethod.stub).to.not.have.been.called;
+            expect(flushMethod.stub).to.not.have.been.called;
+
+            const ret = _execHandler();
+            ret.catch((ex) => {
+                // Eat this exception to avoid warnings.
+                // We are checking for rejection later.
+            });
+
+            return _manifestMock.mocks.load
+                .resolve()
+                .then(() => {
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
+                        repoCount,
+                        -1,
+                        _generateCredentials
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    const failIndex = _testValues.getNumber(secretList.length);
+                    _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length,
+                        failIndex
+                    );
+                })
+                .then(() => {
+                    return _reporterMock.mocks.flush.resolve();
+                })
+                .then(() => {
+                    return expect(ret)
+                        .to.be.rejectedWith(expectedError)
+                        .then(() => {
+                            expect(failMethod.stub).to.have.been.calledOnce;
+                            expect(flushMethod.stub).to.have.been.calledOnce;
+                        });
+                });
+        });
+
+        it('should patch the service account with the correct image pull secrets', () => {
+            const applyImagePullSecretsMethod =
+                _credentialManagerMock.mocks.applyImagePullSecrets;
+
+            const repoCount = _testValues.getNumber(10, 5);
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
+            expect(applyImagePullSecretsMethod.stub).to.not.have.been.called;
+
+            _execHandler();
+
+            return _manifestMock.mocks.load
+                .resolve()
+                .then(() => {
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
+                        repoCount,
+                        -1,
+                        _generateCredentials
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    expect(applyImagePullSecretsMethod.stub).to.have.been
+                        .called;
+                    expect(applyImagePullSecretsMethod.stub.callCount).to.equal(
+                        serviceAccountList.length
+                    );
+
+                    serviceAccountList.forEach((serviceAccount, index) => {
+                        const args =
+                            applyImagePullSecretsMethod.stub.args[index];
+                        expect(args[0]).to.equal(serviceAccount.serviceAccount);
+                        expect(args[1]).to.deep.equal(serviceAccount.secrets);
+                        expect(args[2]).to.deep.equal(serviceAccount.namespace);
+                    });
+                });
+        });
+
+        it('should report failure and reject the promise if any one of the apply operations fails', () => {
+            const failMethod = _reporterMock.mocks.fail;
+            const flushMethod = _reporterMock.mocks.flush;
+
+            const repoCount = _testValues.getNumber(10, 5);
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
+            const expectedError = 'Error applying image pull secrets';
+
+            expect(failMethod.stub).to.not.have.been.called;
+            expect(flushMethod.stub).to.not.have.been.called;
+
+            const ret = _execHandler();
+            ret.catch((ex) => {
+                // Eat this exception to avoid warnings.
+                // We are checking for rejection later.
+            });
+
+            return _manifestMock.mocks.load
+                .resolve()
+                .then(() => {
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
+                        repoCount,
+                        -1,
+                        _generateCredentials
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    const failIndex = _testValues.getNumber(
+                        serviceAccountList.length
+                    );
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length,
                         failIndex
                     );
                 })
@@ -391,9 +690,9 @@ describe('[apply command]', () => {
 
         it('should create a new Helm object for each record in the uninstall list of the manifest', () => {
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
             const uninstallCount = _testValues.getNumber(10, 5);
             const uninstallRecords = _getUninstallRecords(uninstallCount);
             _manifestMock.instance.uninstallRecords = uninstallRecords;
@@ -406,8 +705,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {
@@ -422,10 +735,11 @@ describe('[apply command]', () => {
 
         it('should uninstall each record in the uninstall list', () => {
             const uninstallMethod = _helmMock.mocks.uninstall;
+
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
             const uninstallCount = _testValues.getNumber(10, 5);
             const uninstallRecords = _getUninstallRecords(uninstallCount);
             _manifestMock.instance.uninstallRecords = uninstallRecords;
@@ -438,8 +752,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {
@@ -461,9 +789,8 @@ describe('[apply command]', () => {
             const flushMethod = _reporterMock.mocks.flush;
 
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
 
             const failIndex = _testValues.getNumber(10, 5);
             const uninstallRecords = _getUninstallRecords(failIndex * 2);
@@ -484,8 +811,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {
@@ -510,9 +851,9 @@ describe('[apply command]', () => {
 
         it('should create a new Helm object for each record in the install list of the manifest', () => {
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
             const uninstallCount = _testValues.getNumber(10, 5);
             _manifestMock.instance.uninstallRecords = _getUninstallRecords(
                 uninstallCount
@@ -529,8 +870,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {
@@ -555,10 +910,11 @@ describe('[apply command]', () => {
 
         it('should install each component in the install list', () => {
             const installMethod = _helmMock.mocks.install;
+
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
+
             const uninstallCount = _testValues.getNumber(10, 5);
             _manifestMock.instance.uninstallRecords = _getUninstallRecords(
                 uninstallCount
@@ -575,8 +931,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {
@@ -602,9 +972,8 @@ describe('[apply command]', () => {
             const flushMethod = _reporterMock.mocks.flush;
 
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
 
             const uninstallCount = _testValues.getNumber(10, 5);
             _manifestMock.instance.uninstallRecords = _getUninstallRecords(
@@ -630,8 +999,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {
@@ -690,9 +1073,8 @@ describe('[apply command]', () => {
             const flushMethod = _reporterMock.mocks.flush;
 
             const repoCount = _testValues.getNumber(10, 5);
-            _manifestMock.instance.containerRepositories = _getRepoList(
-                repoCount
-            );
+            const repos = _getPrivateContainerRepos(repoCount);
+            _manifestMock.instance.privateContainerRepos = repos;
 
             const uninstallCount = _testValues.getNumber(10, 5);
             _manifestMock.instance.uninstallRecords = _getUninstallRecords(
@@ -713,8 +1095,22 @@ describe('[apply command]', () => {
                 .resolve()
                 .then(() => {
                     return _bulkComplete(
-                        _credentialManagerMock.mocks.applyCredentials,
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
                         repoCount
+                    );
+                })
+                .then((credentials) => {
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                })
+                .then(() => {
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
                     );
                 })
                 .then(() => {

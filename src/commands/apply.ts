@@ -10,7 +10,11 @@ import CredentialManager from '../credential-manager';
 import Helm from '../helm';
 import Manifest from '../manifest';
 import Reporter from '../reporter';
-import { IChartInstallRecord } from '../types';
+import {
+    IChartInstallRecord,
+    IContainerCredentials,
+    IPrivateContainerRepoRecord
+} from '../types';
 
 const { ArgError } = _args;
 const _logger = _loggerProvider.getLogger('command:apply');
@@ -35,7 +39,8 @@ function _loadManifest(manifest: Manifest): Promise {
 }
 
 /**
- * Fetches credentials for repos and applies them.
+ * Fetches credentials for repos, and returns a list of credentials for each
+ * repo in the list.
  *
  * @private
  * @param manager Reference to the credential manager object that will fetch
@@ -43,23 +48,108 @@ function _loadManifest(manifest: Manifest): Promise {
  * @param repos An array of repositories for which credentials need to be
  *        obtained.
  */
-function _applyCredentials(
+function _fetchContainerCredentials(
     manager: CredentialManager,
-    repos: string[]
-): () => Promise {
-    _logger.trace('Applying repository credentials');
+    repos: IPrivateContainerRepoRecord[]
+): Promise<any[]> {
+    _logger.trace('Fetching repository credentials');
     return Promise.map(repos, (repo, index) => {
-        _logger.trace('Applying credentials for container repository', {
+        _logger.trace('Fetching credentials for container repository', {
             index,
             repository: repo
         });
-        return manager.applyCredentials('container', repo);
+        return manager.fetchContainerCredentials(repo);
     }).then(
-        () => {
-            _logger.trace('Repository credentials applied');
+        (data) => {
+            _logger.trace('Repository credentials fetched');
+            return data;
         },
         (err) => {
-            const message = 'Error applying resource credentials';
+            const message = 'Error fetching container credentials';
+            _logger.error(err, message);
+            throw new Error(message);
+        }
+    );
+}
+
+/**
+ * Creates image pull secrets based on a list of secrets.
+ *
+ * @private
+ * @param manager Reference to the credential manager object that will fetch
+ *        and apply credentials.
+ * @param secrets An array of secrets that need to be created.
+ */
+function _createImagePullSecrets(
+    manager: CredentialManager,
+    secrets: Array<{
+        secretName: string;
+        credentials: IContainerCredentials;
+        namespace?: string;
+    }>
+): Promise<any[]> {
+    return Promise.map(secrets, ({ secretName, credentials, namespace }) => {
+        _logger.trace('Creating image pull secret', {
+            namespace,
+            secretName
+        });
+
+        return manager.createImagePullSecret(
+            secretName,
+            credentials,
+            namespace
+        );
+    }).then(
+        (data) => {
+            _logger.trace('Image pull secrets created');
+            return data;
+        },
+        (err) => {
+            const message = 'Error creating image pull secrets';
+            _logger.error(err, message);
+            throw new Error(message);
+        }
+    );
+}
+
+/**
+ * Applies the image pull secrets to the target service accounts.
+ *
+ * @private
+ * @param manager Reference to the credential manager object that will fetch
+ *        and apply credentials.
+ * @param serviceAccounts An array of service accounts, mapped to the secrets
+ *        that will be applied to the accounts.
+ */
+function _applyImagePullSecrets(
+    manager: CredentialManager,
+    serviceAccounts: Array<{
+        serviceAccount: string;
+        secrets: string[];
+        namespace?: string;
+    }>
+): Promise<any[]> {
+    return Promise.map(
+        serviceAccounts,
+        ({ serviceAccount, secrets, namespace }) => {
+            _logger.trace('Applying image pull secret', {
+                namespace,
+                serviceAccount
+            });
+
+            return manager.applyImagePullSecrets(
+                serviceAccount,
+                secrets,
+                namespace
+            );
+        }
+    ).then(
+        (data) => {
+            _logger.trace('Image pull secrets applied');
+            return data;
+        },
+        (err) => {
+            const message = 'Error applying image pull secrets';
             _logger.error(err, message);
             throw new Error(message);
         }
@@ -196,16 +286,79 @@ export const handler = (argv) => {
             return _loadManifest(manifest);
         })
         .then(() => {
-            const count = manifest.containerRepositories.length;
-            _logger.info('Applying resource credentials to service account', {
+            const count = manifest.privateContainerRepos.length;
+            _logger.info('Fetching container credentials', {
                 count
             });
-            reporter.log(`Applying credentials for ${count} repositories`);
-
-            return _applyCredentials(
-                credentialManager,
-                manifest.containerRepositories
+            reporter.log(
+                `Fetching container credentials for ${count} repositories`
             );
+
+            return _fetchContainerCredentials(
+                credentialManager,
+                manifest.privateContainerRepos.map((repo) => repo.repoUri)
+            );
+        })
+        .then((credentials) => {
+            _logger.trace('Building secret list');
+
+            const secretMap = {};
+            credentials.forEach((credential, index) => {
+                const repo = manifest.privateContainerRepos[index];
+                repo.targets.reduce((result, target) => {
+                    const { namespace, secretName } = target;
+                    const key = `${namespace}_${secretName}`;
+                    if (!result[key]) {
+                        result[key] = {
+                            namespace,
+                            secretName,
+                            credential
+                        };
+                    }
+                    return result;
+                }, secretMap);
+            });
+
+            const secrets = Object.keys(secretMap).map((key) => secretMap[key]);
+            _logger.trace('Secret list constructed', { secrets });
+
+            const count = secrets.length;
+            _logger.info('Creating kubernetes secrets', {
+                count
+            });
+            reporter.log(`Creating kubernetes secrets for ${count} targets`);
+
+            return _createImagePullSecrets(credentialManager, secrets);
+        })
+        .then(() => {
+            _logger.trace('Building service account list');
+
+            const serviceAccountMap = {};
+            manifest.privateContainerRepos.forEach((repo) => {
+                repo.targets.reduce((result, target) => {
+                    const { namespace, secretName, serviceAccount } = target;
+                    const key = `${namespace}_${serviceAccount}`;
+                    if (!result[key]) {
+                        result[key] = {
+                            namespace,
+                            serviceAccount,
+                            secrets: []
+                        };
+                    }
+                    result[key].secrets.push(secretName);
+
+                    return result;
+                }, serviceAccountMap);
+            });
+
+            const serviceAccounts = Object.keys(serviceAccountMap).map(
+                (key) => serviceAccountMap[key]
+            );
+            _logger.trace('Service account list constructed', {
+                serviceAccounts
+            });
+
+            return _applyImagePullSecrets(credentialManager, serviceAccounts);
         })
         .then(() => {
             const count = manifest.uninstallRecords.length;

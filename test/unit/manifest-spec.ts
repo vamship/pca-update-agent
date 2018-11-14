@@ -54,7 +54,7 @@ describe('Manifest', () => {
             expect(manifest.load).to.be.a('function');
             expect(manifest.installRecords).to.be.an('array');
             expect(manifest.uninstallRecords).to.be.an('array');
-            expect(manifest.containerRepositories).to.be.an('array');
+            expect(manifest.privateContainerRepos).to.be.an('array');
         });
     });
 
@@ -81,9 +81,18 @@ describe('Manifest', () => {
                 uninstallRecords: new Array(10)
                     .fill(0)
                     .map((item, index) => `uninstall_${index}`),
-                containerRepositories: new Array(10)
+                privateContainerRepos: new Array(10)
                     .fill(0)
-                    .map((item, index) => `repositories_${index}`)
+                    .map((item, index) => ({
+                        repoUri: `repoUri_${index}`,
+                        targets: new Array(10)
+                            .fill(0)
+                            .map((target, targetIndex) => ({
+                                serviceAccount: `serviceAccount_${index}`,
+                                secretName: `secret_${index}`,
+                                namespace: `targetRepo_${index}`
+                            }))
+                    }))
             };
         }
 
@@ -141,14 +150,14 @@ describe('Manifest', () => {
             );
         });
 
-        it('should reject the promise if the manifest.containerRepositories is invalid', () => {
+        it('should reject the promise if the manifest.privateContainerRepos is invalid', () => {
             const readFileMethod = _fsMock.mocks.readFile;
             const inputs = _testValues.allButArray();
 
-            return Promise.map(inputs, (containerRepositories) => {
+            return Promise.map(inputs, (privateContainerRepos) => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
-                manifestData.containerRepositories = containerRepositories;
+                manifestData.privateContainerRepos = privateContainerRepos;
 
                 readFileMethod.reset();
                 const ret = manifest.load();
@@ -157,19 +166,19 @@ describe('Manifest', () => {
                 readFileCallback(null, JSON.stringify(manifestData));
 
                 return expect(ret).to.be.rejectedWith(
-                    /.*Manifest does not conform to expected schema.*containerRepositories.*/
+                    /.*Manifest does not conform to expected schema.*privateContainerRepos.*/
                 );
             });
         });
 
-        it('should reject the promise if the manifest.containerRepositories has invalid values', () => {
+        it('should reject the promise if the manifest.privateContainerRepos has invalid values', () => {
             const readFileMethod = _fsMock.mocks.readFile;
-            const inputs = _testValues.allButString('');
+            const inputs = _testValues.allButObject();
 
             return Promise.map(inputs, (repo) => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
-                manifestData.containerRepositories = new Array(10)
+                manifestData.privateContainerRepos = new Array(10)
                     .fill(0)
                     .map((item) => repo);
 
@@ -180,7 +189,153 @@ describe('Manifest', () => {
                 readFileCallback(null, JSON.stringify(manifestData));
 
                 return expect(ret).to.be.rejectedWith(
-                    /.*Manifest does not conform to expected schema.*containerRepositories.*/
+                    /.*Manifest does not conform to expected schema.*privateContainerRepos.*/
+                );
+            });
+        });
+
+        it('should reject the promise if the a privateRepo does not define a repoUri', () => {
+            const readFileMethod = _fsMock.mocks.readFile;
+            const inputs = _testValues.allButString('');
+
+            return Promise.map(inputs, (repoUri) => {
+                const manifest = _createManifest();
+                const manifestData = _generateManifestData();
+                manifestData.privateContainerRepos.forEach((record) => {
+                    record.repoUri = repoUri;
+                });
+
+                readFileMethod.reset();
+                const ret = manifest.load();
+
+                const readFileCallback = readFileMethod.stub.args[0][1];
+                readFileCallback(null, JSON.stringify(manifestData));
+
+                return expect(ret).to.be.rejectedWith(
+                    /.*Manifest does not conform to expected schema.*repoUri.*/
+                );
+            });
+        });
+
+        it('should reject the promise if the a privateRepo does not define valid targets', () => {
+            const readFileMethod = _fsMock.mocks.readFile;
+            const inputs = _testValues.allButArray([]);
+
+            return Promise.map(inputs, (targets) => {
+                const manifest = _createManifest();
+                const manifestData = _generateManifestData();
+                manifestData.privateContainerRepos.forEach((record) => {
+                    record.targets = targets;
+                });
+
+                readFileMethod.reset();
+                const ret = manifest.load();
+
+                const readFileCallback = readFileMethod.stub.args[0][1];
+                readFileCallback(null, JSON.stringify(manifestData));
+
+                return expect(ret).to.be.rejectedWith(
+                    /.*Manifest does not conform to expected schema.*targets.*/
+                );
+            });
+        });
+
+        it('should reject the promise if the targets element is invalid', () => {
+            const readFileMethod = _fsMock.mocks.readFile;
+            const inputs = _testValues.allButObject();
+
+            return Promise.map(inputs, (target) => {
+                const manifest = _createManifest();
+                const manifestData = _generateManifestData();
+                manifestData.privateContainerRepos.forEach((record) => {
+                    record.targets = new Array(10)
+                        .fill(0)
+                        .map((item) => target);
+                });
+
+                readFileMethod.reset();
+                const ret = manifest.load();
+
+                const readFileCallback = readFileMethod.stub.args[0][1];
+                readFileCallback(null, JSON.stringify(manifestData));
+
+                return expect(ret).to.be.rejectedWith(
+                    /.*Manifest does not conform to expected schema.*target.*/
+                );
+            });
+        });
+
+        it('should reject the promise if the target does not define a serviceAccount', () => {
+            const readFileMethod = _fsMock.mocks.readFile;
+            const inputs = _testValues.allButString('');
+
+            return Promise.map(inputs, (serviceAccount) => {
+                const manifest = _createManifest();
+                const manifestData = _generateManifestData();
+                manifestData.privateContainerRepos.forEach((record) => {
+                    record.targets.forEach((target) => {
+                        target.serviceAccount = serviceAccount;
+                    });
+                });
+
+                readFileMethod.reset();
+                const ret = manifest.load();
+
+                const readFileCallback = readFileMethod.stub.args[0][1];
+                readFileCallback(null, JSON.stringify(manifestData));
+
+                return expect(ret).to.be.rejectedWith(
+                    /.*Manifest does not conform to expected schema.*serviceAccount.*/
+                );
+            });
+        });
+
+        it('should reject the promise if the target does not define a namespace', () => {
+            const readFileMethod = _fsMock.mocks.readFile;
+            const inputs = _testValues.allButString('');
+
+            return Promise.map(inputs, (namespace) => {
+                const manifest = _createManifest();
+                const manifestData = _generateManifestData();
+                manifestData.privateContainerRepos.forEach((record) => {
+                    record.targets.forEach((target) => {
+                        target.namespace = namespace;
+                    });
+                });
+
+                readFileMethod.reset();
+                const ret = manifest.load();
+
+                const readFileCallback = readFileMethod.stub.args[0][1];
+                readFileCallback(null, JSON.stringify(manifestData));
+
+                return expect(ret).to.be.rejectedWith(
+                    /.*Manifest does not conform to expected schema.*namespace.*/
+                );
+            });
+        });
+
+        it('should reject the promise if the target does not define a secretName', () => {
+            const readFileMethod = _fsMock.mocks.readFile;
+            const inputs = _testValues.allButString('');
+
+            return Promise.map(inputs, (secretName) => {
+                const manifest = _createManifest();
+                const manifestData = _generateManifestData();
+                manifestData.privateContainerRepos.forEach((record) => {
+                    record.targets.forEach((target) => {
+                        target.secretName = secretName;
+                    });
+                });
+
+                readFileMethod.reset();
+                const ret = manifest.load();
+
+                const readFileCallback = readFileMethod.stub.args[0][1];
+                readFileCallback(null, JSON.stringify(manifestData));
+
+                return expect(ret).to.be.rejectedWith(
+                    /.*Manifest does not conform to expected schema.*secretName.*/
                 );
             });
         });
@@ -496,8 +651,8 @@ describe('Manifest', () => {
                 expect(manifest.uninstallRecords).to.deep.equal(
                     manifestData.uninstallRecords
                 );
-                expect(manifest.containerRepositories).to.deep.equal(
-                    manifestData.containerRepositories
+                expect(manifest.privateContainerRepos).to.deep.equal(
+                    manifestData.privateContainerRepos
                 );
             });
         });

@@ -6,7 +6,11 @@ import _loggerProvider from '@vamship/logger';
 import { Promise } from 'bluebird';
 import _fs from 'fs';
 import manifestSchema from './manifest-schema';
-import { IChartInstallRecord, ILogger } from './types';
+import {
+    IChartInstallRecord,
+    ILogger,
+    IPrivateContainerRepoRecord
+} from './types';
 
 const _checkManifestSchema = _schemaHelper.createSchemaChecker(
     manifestSchema,
@@ -20,7 +24,7 @@ const _checkManifestSchema = _schemaHelper.createSchemaChecker(
 export default class Manifest {
     private _installRecords: IChartInstallRecord[];
     private _uninstallRecords: string[];
-    private _containerRepositories: string[];
+    private _privateContainerRepos: IPrivateContainerRepoRecord[];
     private _filePath: string;
     private _logger: ILogger;
 
@@ -33,7 +37,7 @@ export default class Manifest {
         this._filePath = filePath;
         this._installRecords = [];
         this._uninstallRecords = [];
-        this._containerRepositories = [];
+        this._privateContainerRepos = [];
         this._logger = _loggerProvider.getLogger('manifest');
         this._logger.trace('Manifest initialized', {
             filePath: this._filePath
@@ -55,10 +59,10 @@ export default class Manifest {
     }
 
     /**
-     * A list of docker repositories accessed by the installation scripts.
+     * A list of private container repos that require credentials for access.
      */
-    public get containerRepositories(): string[] {
-        return this._containerRepositories;
+    public get privateContainerRepos(): IPrivateContainerRepoRecord[] {
+        return this._privateContainerRepos;
     }
 
     /**
@@ -86,8 +90,8 @@ export default class Manifest {
 
                 this._installRecords = manifestData.installRecords;
                 this._uninstallRecords = manifestData.uninstallRecords;
-                this._containerRepositories =
-                    manifestData.containerRepositories;
+                this._privateContainerRepos =
+                    manifestData.privateContainerRepos;
             },
             (err) => {
                 this._logger.error(err, 'Error reading manifest file');
