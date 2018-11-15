@@ -71,16 +71,12 @@ export default class CredentialManager {
         );
         this._logger.trace(_fetch.toString());
 
-        return _fetch(this._endpoint, {
-            method: 'POST',
+        return _fetch(`${this._endpoint}/container/${repoUri}`, {
+            method: 'GET',
             headers: {
                 'content-type': 'application/json',
                 authorization: this._authToken
-            },
-            body: JSON.stringify({
-                kind: 'container',
-                resourceId: repoUri
-            })
+            }
         })
             .then((response) => {
                 this._logger.trace('Parsing repository credentials');

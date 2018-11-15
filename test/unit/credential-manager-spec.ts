@@ -135,19 +135,16 @@ describe('CredentialManager', () => {
             const credMgr = _createCredentialManager(endpoint, authToken);
             const repoUri = _testValues.getString('repoUri');
             const fetchMethod = _isomorphicFetchMock.mocks.fetch;
+            const expectedEndpoint = `${endpoint}/container/${repoUri}`;
 
             expect(fetchMethod.stub).to.not.have.been.called;
 
             _invokeFetchCredentials(repoUri, credMgr);
 
             expect(fetchMethod.stub).to.have.been.calledOnce;
-            expect(fetchMethod.stub.args[0][0]).to.equal(endpoint);
+            expect(fetchMethod.stub.args[0][0]).to.equal(expectedEndpoint);
             expect(fetchMethod.stub.args[0][1]).to.deep.equal({
-                method: 'POST',
-                body: JSON.stringify({
-                    kind: 'container',
-                    resourceId: repoUri
-                }),
+                method: 'GET',
                 headers: {
                     'content-type': 'application/json',
                     authorization: authToken
