@@ -56,12 +56,12 @@ describe('Helm', () => {
     describe('install()', () => {
         it('should throw an error if invoked without valid install options', () => {
             const inputs = _testValues.allButObject();
-            const error = 'Invalid installOptions (arg #1)';
+            const error = 'Invalid chartInfo (arg #1)';
 
-            inputs.forEach((installOptions) => {
+            inputs.forEach((chartInfo) => {
                 const wrapper = () => {
                     const helm = _createHelm();
-                    return helm.install(installOptions);
+                    return helm.install(chartInfo);
                 };
 
                 expect(wrapper).to.throw(error);
@@ -70,7 +70,7 @@ describe('Helm', () => {
 
         it('should throw an error if the install options does not define a valid chart name', () => {
             const inputs = _testValues.allButString('');
-            const error = 'Invalid chartName (installOptions.chartName)';
+            const error = 'Invalid chartName (chartInfo.chartName)';
 
             inputs.forEach((chartName) => {
                 const wrapper = () => {
@@ -87,7 +87,7 @@ describe('Helm', () => {
 
         it('should throw an error if the install options does not define a valid namespace', () => {
             const inputs = _testValues.allButString('');
-            const error = 'Invalid namespace (installOptions.namespace)';
+            const error = 'Invalid namespace (chartInfo.namespace)';
 
             inputs.forEach((namespace) => {
                 const wrapper = () => {
@@ -105,7 +105,7 @@ describe('Helm', () => {
 
         it('should throw an error if the install options does not define valid setOptions', () => {
             const inputs = _testValues.allButArray();
-            const error = 'Invalid setOptions (installOptions.setOptions)';
+            const error = 'Invalid setOptions (chartInfo.setOptions)';
 
             inputs.forEach((setOptions) => {
                 const wrapper = () => {

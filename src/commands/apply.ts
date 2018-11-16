@@ -190,9 +190,7 @@ function _uninstallComponents(components: string[]): () => Promise {
  * @param installRecords An array containing the component definition, including
  *        the release name, chart name, namespace and install options.
  */
-function _installComponents(
-    installRecords: IInstallRecord[]
-): () => Promise {
+function _installComponents(installRecords: IInstallRecord[]): () => Promise {
     _logger.trace('Installing components on the cluster');
     return Promise.map(installRecords, (installRecord, index) => {
         _logger.trace('Uninstalling component', {
@@ -200,9 +198,9 @@ function _installComponents(
             installRecord
         });
 
-        const { releaseName, installOptions } = installRecord;
+        const { releaseName } = installRecord;
         const helm = new Helm(releaseName);
-        return helm.install(installOptions);
+        return helm.install(installRecord);
     }).then(
         () => {
             _logger.trace('Components installed');

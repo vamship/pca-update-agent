@@ -30,45 +30,41 @@ export default class Helm {
     /**
      * Install or upgrade a helm chart with the specified options.
      *
-     * @param chartName The name of the chart.
-     * @param installOptions Options to be included with the installation
-     *        commands.
+     * @param chartInfo The chart to install along with the required install
+     *        options.
      */
-    public install(installOptions: IChartInfo) {
-        _argValidator.checkObject(
-            installOptions,
-            'Invalid installOptions (arg #1)'
-        );
+    public install(chartInfo: IChartInfo) {
+        _argValidator.checkObject(chartInfo, 'Invalid chartInfo (arg #1)');
         _argValidator.checkString(
-            installOptions.chartName,
+            chartInfo.chartName,
             1,
-            'Invalid chartName (installOptions.chartName)'
+            'Invalid chartName (chartInfo.chartName)'
         );
 
         _argValidator.checkString(
-            installOptions.namespace,
+            chartInfo.namespace,
             1,
-            'Invalid namespace (installOptions.namespace)'
+            'Invalid namespace (chartInfo.namespace)'
         );
 
         _argValidator.checkArray(
-            installOptions.setOptions,
-            'Invalid setOptions (installOptions.setOptions)'
+            chartInfo.setOptions,
+            'Invalid setOptions (chartInfo.setOptions)'
         );
 
         const args = [
             'upgrade',
             this._releaseName,
-            installOptions.chartName,
+            chartInfo.chartName,
             '--install',
             '--debug',
             '--tls'
         ];
-        if (installOptions.namespace) {
-            args.push(`--namespace=${installOptions.namespace}`);
+        if (chartInfo.namespace) {
+            args.push(`--namespace=${chartInfo.namespace}`);
         }
-        if (installOptions.setOptions.length > 0) {
-            const setArgs = installOptions.setOptions
+        if (chartInfo.setOptions.length > 0) {
+            const setArgs = chartInfo.setOptions
                 .map(({ key, value }) => `${key}=${value}`)
                 .join(',');
             args.push(`--set=${setArgs}`);

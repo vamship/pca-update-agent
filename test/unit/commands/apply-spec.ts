@@ -204,15 +204,13 @@ describe('[apply command]', () => {
         function _getInstallRecords(size: number): IInstallRecord[] {
             return new Array(size).fill(0).map((item, index) => ({
                 releaseName: _testValues.getString(`releaseName${index}`),
-                installOptions: {
-                    chartName: _testValues.getString(`chartName${index}`),
-                    namespace: _testValues.getString(`namespace${index}`),
-                    setOptions: new Array(3)
-                        .fill(0)
-                        .map((option, optionIndex) =>
-                            _testValues.getString(`setOption${optionIndex}`)
-                        )
-                }
+                chartName: _testValues.getString(`chartName${index}`),
+                namespace: _testValues.getString(`namespace${index}`),
+                setOptions: new Array(3)
+                    .fill(0)
+                    .map((option, optionIndex) =>
+                        _testValues.getString(`setOption${optionIndex}`)
+                    )
             }));
         }
 
@@ -959,10 +957,9 @@ describe('[apply command]', () => {
                     expect(installMethod.stub).to.have.been.called;
                     expect(installMethod.stub.callCount).to.equal(installCount);
                     installRecords.forEach((installRecord, index) => {
-                        const { installOptions } = installRecord;
                         const installArgs = installMethod.stub.args[index];
                         expect(installArgs).to.have.length(1);
-                        expect(installArgs[0]).to.deep.equal(installOptions);
+                        expect(installArgs[0]).to.deep.equal(installRecord);
                     });
                 });
         });

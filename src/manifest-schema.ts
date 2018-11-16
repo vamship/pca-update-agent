@@ -62,44 +62,43 @@ export default {
             type: 'array',
             items: {
                 type: 'object',
-                required: ['releaseName', 'installOptions'],
+                required: [
+                    'releaseName',
+                    'chartName',
+                    'setOptions',
+                    'namespace'
+                ],
                 properties: {
                     releaseName: {
                         type: 'string',
                         minLength: 1,
                         pattern: '^(.+)$'
                     },
-                    installOptions: {
-                        type: 'object',
-                        required: ['chartName', 'setOptions', 'namespace'],
-                        properties: {
-                            chartName: {
-                                type: 'string',
-                                minLength: 1,
-                                pattern: '^(.+)$'
-                            },
-                            namespace: {
-                                type: 'string',
-                                minLength: 1,
-                                pattern: '^(.+)$'
-                            },
-                            setOptions: {
-                                type: 'array',
-                                items: {
-                                    type: 'object',
-                                    required: ['key', 'value'],
-                                    properties: {
-                                        key: {
-                                            type: 'string',
-                                            minLength: 1,
-                                            pattern: '^(.+)$'
-                                        },
-                                        value: {
-                                            type: 'string',
-                                            minLength: 1,
-                                            pattern: '^(.+)$'
-                                        }
-                                    }
+                    chartName: {
+                        type: 'string',
+                        minLength: 1,
+                        pattern: '^(.+)$'
+                    },
+                    namespace: {
+                        type: 'string',
+                        minLength: 1,
+                        pattern: '^(.+)$'
+                    },
+                    setOptions: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            required: ['key', 'value'],
+                            properties: {
+                                key: {
+                                    type: 'string',
+                                    minLength: 1,
+                                    pattern: '^(.+)$'
+                                },
+                                value: {
+                                    type: 'string',
+                                    minLength: 1,
+                                    pattern: '^(.+)$'
                                 }
                             }
                         }

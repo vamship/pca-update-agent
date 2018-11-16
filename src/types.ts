@@ -92,16 +92,11 @@ export interface IChartInfo {
 /**
  * Defines install specifications for a chart.
  */
-export interface IInstallRecord {
+export interface IInstallRecord extends IChartInfo {
     /**
      * The name of the release.
      */
     releaseName: string;
-
-    /**
-     * Installation options.
-     */
-    installOptions: IChartInfo;
 }
 
 /**

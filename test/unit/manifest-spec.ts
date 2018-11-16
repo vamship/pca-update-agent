@@ -63,20 +63,12 @@ describe('Manifest', () => {
             return {
                 installRecords: new Array(10).fill(0).map((item, index) => ({
                     releaseName: _testValues.getString(`releaseName_${index}`),
-                    installOptions: {
-                        chartName: _testValues.getString(`chartName_${index}`),
-                        namespace: _testValues.getString(`namespace_${index}`),
-                        setOptions: new Array(5)
-                            .fill(0)
-                            .map((item2, index2) => ({
-                                key: _testValues.getString(
-                                    `set_${index}_${index2}`
-                                ),
-                                value: _testValues.getString(
-                                    `set_${index}_${index2}`
-                                )
-                            }))
-                    }
+                    chartName: _testValues.getString(`chartName_${index}`),
+                    namespace: _testValues.getString(`namespace_${index}`),
+                    setOptions: new Array(5).fill(0).map((item2, index2) => ({
+                        key: _testValues.getString(`set_${index}_${index2}`),
+                        value: _testValues.getString(`set_${index}_${index2}`)
+                    }))
                 })),
                 uninstallRecords: new Array(10)
                     .fill(0)
@@ -451,30 +443,7 @@ describe('Manifest', () => {
             });
         });
 
-        it('should reject the promise if the an installRecord does not define installOptions', () => {
-            const readFileMethod = _fsMock.mocks.readFile;
-            const inputs = _testValues.allButString('');
-
-            return Promise.map(inputs, (installOptions) => {
-                const manifest = _createManifest();
-                const manifestData = _generateManifestData();
-                manifestData.installRecords.forEach((record) => {
-                    record.installOptions = installOptions;
-                });
-
-                readFileMethod.reset();
-                const ret = manifest.load();
-
-                const readFileCallback = readFileMethod.stub.args[0][1];
-                readFileCallback(null, JSON.stringify(manifestData));
-
-                return expect(ret).to.be.rejectedWith(
-                    /.*Manifest does not conform to expected schema.*installOptions.*/
-                );
-            });
-        });
-
-        it('should reject the promise if the the installOptions does not define a valid chartName', () => {
+        it('should reject the promise if the the installRecord does not define a valid chartName', () => {
             const readFileMethod = _fsMock.mocks.readFile;
             const inputs = _testValues.allButString('');
 
@@ -482,7 +451,7 @@ describe('Manifest', () => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
                 manifestData.installRecords.forEach((record) => {
-                    record.installOptions.chartName = chartName;
+                    record.chartName = chartName;
                 });
 
                 readFileMethod.reset();
@@ -505,7 +474,7 @@ describe('Manifest', () => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
                 manifestData.installRecords.forEach((record) => {
-                    record.installOptions.namespace = namespace;
+                    record.namespace = namespace;
                 });
 
                 readFileMethod.reset();
@@ -520,7 +489,7 @@ describe('Manifest', () => {
             });
         });
 
-        it('should reject the promise if the the installOptions does not define a valid setOptions', () => {
+        it('should reject the promise if the the installRecord does not define a valid setOptions', () => {
             const readFileMethod = _fsMock.mocks.readFile;
             const inputs = _testValues.allButArray();
 
@@ -528,7 +497,7 @@ describe('Manifest', () => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
                 manifestData.installRecords.forEach((record) => {
-                    record.installOptions.setOptions = setOptions;
+                    record.setOptions = setOptions;
                 });
 
                 readFileMethod.reset();
@@ -551,7 +520,7 @@ describe('Manifest', () => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
                 manifestData.installRecords.forEach((record) => {
-                    record.installOptions.setOptions = new Array(10)
+                    record.setOptions = new Array(10)
                         .fill(0)
                         .map((item) => option);
                 });
@@ -576,7 +545,7 @@ describe('Manifest', () => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
                 manifestData.installRecords.forEach((record) => {
-                    record.installOptions.setOptions.forEach((option) => {
+                    record.setOptions.forEach((option) => {
                         option.key = key;
                     });
                 });
@@ -601,7 +570,7 @@ describe('Manifest', () => {
                 const manifest = _createManifest();
                 const manifestData = _generateManifestData();
                 manifestData.installRecords.forEach((record) => {
-                    record.installOptions.setOptions.forEach((option) => {
+                    record.setOptions.forEach((option) => {
                         option.value = value;
                     });
                 });

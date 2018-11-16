@@ -6,11 +6,7 @@ import _loggerProvider from '@vamship/logger';
 import { Promise } from 'bluebird';
 import _fs from 'fs';
 import manifestSchema from './manifest-schema';
-import {
-    IInstallRecord,
-    ILogger,
-    IPrivateContainerRepoRecord
-} from './types';
+import { IInstallRecord, ILogger, IPrivateContainerRepoRecord } from './types';
 
 const _checkManifestSchema = _schemaHelper.createSchemaChecker(
     manifestSchema,
