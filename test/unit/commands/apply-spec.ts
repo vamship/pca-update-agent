@@ -16,8 +16,8 @@ import {
 } from '@vamship/test-utils';
 
 import {
-    IChartInstallRecord,
     IContainerCredentials,
+    IInstallRecord,
     IPrivateContainerRepoRecord
 } from '../../../src/types';
 const _commandModule = _rewire('../../../src/commands/apply');
@@ -201,7 +201,7 @@ describe('[apply command]', () => {
                 );
         }
 
-        function _getInstallRecords(size: number): IChartInstallRecord[] {
+        function _getInstallRecords(size: number): IInstallRecord[] {
             return new Array(size).fill(0).map((item, index) => ({
                 releaseName: _testValues.getString(`releaseName${index}`),
                 installOptions: {

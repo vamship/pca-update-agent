@@ -11,8 +11,8 @@ import Helm from '../helm';
 import Manifest from '../manifest';
 import Reporter from '../reporter';
 import {
-    IChartInstallRecord,
     IContainerCredentials,
+    IInstallRecord,
     IPrivateContainerRepoRecord
 } from '../types';
 
@@ -191,7 +191,7 @@ function _uninstallComponents(components: string[]): () => Promise {
  *        the release name, chart name, namespace and install options.
  */
 function _installComponents(
-    installRecords: IChartInstallRecord[]
+    installRecords: IInstallRecord[]
 ): () => Promise {
     _logger.trace('Installing components on the cluster');
     return Promise.map(installRecords, (installRecord, index) => {

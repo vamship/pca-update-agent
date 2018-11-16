@@ -7,7 +7,7 @@ import { Promise } from 'bluebird';
 import _fs from 'fs';
 import manifestSchema from './manifest-schema';
 import {
-    IChartInstallRecord,
+    IInstallRecord,
     ILogger,
     IPrivateContainerRepoRecord
 } from './types';
@@ -22,7 +22,7 @@ const _checkManifestSchema = _schemaHelper.createSchemaChecker(
  * installed on the cluster.
  */
 export default class Manifest {
-    private _installRecords: IChartInstallRecord[];
+    private _installRecords: IInstallRecord[];
     private _uninstallRecords: string[];
     private _privateContainerRepos: IPrivateContainerRepoRecord[];
     private _filePath: string;
@@ -47,7 +47,7 @@ export default class Manifest {
     /**
      * A list of components to be installed on the cluster.
      */
-    public get installRecords(): IChartInstallRecord[] {
+    public get installRecords(): IInstallRecord[] {
         return this._installRecords;
     }
 

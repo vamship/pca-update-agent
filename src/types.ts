@@ -69,7 +69,7 @@ export interface IPrivateRepoTarget {
  * Defines the parameters required to install/upgrade a software component on
  * the cluster. The component must be defined as a helm chart.
  */
-export interface IComponentInstallOptions {
+export interface IChartInfo {
     /**
      * The name of the chart.
      */
@@ -92,7 +92,7 @@ export interface IComponentInstallOptions {
 /**
  * Defines install specifications for a chart.
  */
-export interface IChartInstallRecord {
+export interface IInstallRecord {
     /**
      * The name of the release.
      */
@@ -101,7 +101,7 @@ export interface IChartInstallRecord {
     /**
      * Installation options.
      */
-    installOptions: IComponentInstallOptions;
+    installOptions: IChartInfo;
 }
 
 /**

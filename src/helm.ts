@@ -1,7 +1,7 @@
 import { argValidator as _argValidator } from '@vamship/arg-utils';
 import _loggerProvider from '@vamship/logger';
 import _execa from 'execa';
-import { IComponentInstallOptions, ILogger } from './types';
+import { IChartInfo, ILogger } from './types';
 
 /**
  * Wrapper class that can execute helm commands and return a success/failure
@@ -34,7 +34,7 @@ export default class Helm {
      * @param installOptions Options to be included with the installation
      *        commands.
      */
-    public install(installOptions: IComponentInstallOptions) {
+    public install(installOptions: IChartInfo) {
         _argValidator.checkObject(
             installOptions,
             'Invalid installOptions (arg #1)'
