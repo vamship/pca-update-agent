@@ -85,20 +85,9 @@ describe('Helm', () => {
             });
         });
 
-        it('should throw an error if the install options defines an invalid namespace', () => {
-            const inputs = _testValues
-                .allButSelected('undefined', 'string')
-                .concat(['']);
+        it('should throw an error if the install options does not define a valid namespace', () => {
+            const inputs = _testValues.allButString('');
             const error = 'Invalid namespace (installOptions.namespace)';
-
-            // No errors expected if the property is undefined.
-            expect(() => {
-                const helm = _createHelm();
-                return helm.install({
-                    chartName: _testValues.getString('chartName'),
-                    namespace: undefined
-                });
-            }).to.not.throw();
 
             inputs.forEach((namespace) => {
                 const wrapper = () => {
@@ -114,10 +103,31 @@ describe('Helm', () => {
             });
         });
 
+        it('should throw an error if the install options does not define valid setOptions', () => {
+            const inputs = _testValues.allButArray();
+            const error = 'Invalid setOptions (installOptions.setOptions)';
+
+            inputs.forEach((setOptions) => {
+                const wrapper = () => {
+                    const helm = _createHelm();
+                    const options = {
+                        chartName: _testValues.getString('chartName'),
+                        namespace: _testValues.getString('namespace'),
+                        setOptions
+                    };
+                    return helm.install(options);
+                };
+
+                expect(wrapper).to.throw(error);
+            });
+        });
+
         it('should return a promise when invoked', () => {
             const helm = _createHelm();
             const ret = helm.install({
-                chartName: _testValues.getString('chartName')
+                chartName: _testValues.getString('chartName'),
+                namespace: _testValues.getString('namespace'),
+                setOptions: []
             });
 
             expect(ret).to.be.an('object');
@@ -162,53 +172,19 @@ describe('Helm', () => {
             ]);
         });
 
-        it('should omit the namespace argument if not defined in the options', () => {
-            const releaseName = _testValues.getString('releaseName');
-            const helm = _createHelm(releaseName);
-            const execaMethod = _execaMock.mocks.execa;
-
-            const chartName = _testValues.getString('chartName');
-            const setOptions = new Array(10).fill(0).map(() => ({
-                key: _testValues.getString('key'),
-                value: _testValues.getString('value')
-            }));
-            const setArgs = setOptions
-                .map(({ key, value }) => `${key}=${value}`)
-                .join(',');
-
-            expect(execaMethod.stub).to.not.have.been.called;
-            helm.install({
-                chartName,
-                setOptions
-            });
-
-            expect(execaMethod.stub).to.have.been.calledOnce;
-            expect(execaMethod.stub.args[0]).to.have.length(2);
-
-            expect(execaMethod.stub.args[0][0]).to.equal('helm');
-            expect(execaMethod.stub.args[0][1]).to.deep.equal([
-                `upgrade`,
-                releaseName,
-                chartName,
-                '--install',
-                '--debug',
-                '--tls',
-                `--set=${setArgs}`
-            ]);
-        });
-
-        it('should omit the set argument if not defined in the options', () => {
+        it('should omit the set argument if the set options are empty', () => {
             const releaseName = _testValues.getString('releaseName');
             const chartName = _testValues.getString('chartName');
-            const helm = _createHelm(releaseName);
-            const execaMethod = _execaMock.mocks.execa;
-
             const namespace = _testValues.getString('namespace');
+            const setOptions = [];
+            const helm = _createHelm(releaseName);
+            const execaMethod = _execaMock.mocks.execa;
 
             expect(execaMethod.stub).to.not.have.been.called;
             helm.install({
                 chartName,
-                namespace
+                namespace,
+                setOptions
             });
 
             expect(execaMethod.stub).to.have.been.calledOnce;
@@ -232,7 +208,9 @@ describe('Helm', () => {
             const error = new Error('something went wrong!');
 
             const ret = helm.install({
-                chartName: _testValues.getString('chartName')
+                chartName: _testValues.getString('chartName'),
+                namespace: _testValues.getString('namespace'),
+                setOptions: []
             });
             execaMethod.reject(error);
 
@@ -244,7 +222,9 @@ describe('Helm', () => {
             const execaMethod = _execaMock.mocks.execa;
 
             const ret = helm.install({
-                chartName: _testValues.getString('chartName')
+                chartName: _testValues.getString('chartName'),
+                namespace: _testValues.getString('namespace'),
+                setOptions: []
             });
             execaMethod.resolve();
 

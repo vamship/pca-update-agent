@@ -114,7 +114,7 @@ export default class CredentialManager {
     public createImagePullSecret(
         secretName: string,
         containerCredentials: IContainerCredentials,
-        namespace?: string
+        namespace: string
     ): Promise {
         _argValidator.checkString(secretName, 1, 'Invalid secretName (arg #1)');
         _argValidator.checkObject(
@@ -141,13 +141,7 @@ export default class CredentialManager {
             1,
             'Invalid email (containerCredentials.email)'
         );
-        if (typeof namespace !== 'undefined') {
-            _argValidator.checkString(
-                namespace,
-                1,
-                'Invalid namespace (arg #3)'
-            );
-        }
+        _argValidator.checkString(namespace, 1, 'Invalid namespace (arg #3)');
 
         return Promise.resolve()
             .then(() => {
@@ -183,19 +177,17 @@ export default class CredentialManager {
                 this._logger.debug('Creating secret', {
                     secret: secretName
                 });
-                const args = ['create', 'secret', 'docker-registry'];
-
-                if (typeof namespace !== 'undefined') {
-                    args.push(`--namespace=${namespace}`);
-                }
-
-                [
+                const args = [
+                    'create',
+                    'secret',
+                    'docker-registry',
+                    `--namespace=${namespace}`,
                     secretName,
                     `--docker-server=${containerCredentials.server}`,
                     `--docker-username=${containerCredentials.username}`,
                     `--docker-password=${containerCredentials.password}`,
                     `--docker-email=${containerCredentials.email}`
-                ].forEach((arg) => args.push(arg));
+                ];
 
                 this._logger.trace('Create secret args', {
                     args
@@ -234,7 +226,7 @@ export default class CredentialManager {
     public applyImagePullSecrets(
         serviceAccount: string,
         secrets: string[],
-        namespace?: string
+        namespace: string
     ) {
         _argValidator.checkString(
             serviceAccount,
@@ -242,13 +234,7 @@ export default class CredentialManager {
             'Invalid serviceAccount (arg #1)'
         );
         _argValidator.checkArray(secrets, 'Invalid secrets (arg #2)');
-        if (typeof namespace !== 'undefined') {
-            _argValidator.checkString(
-                namespace,
-                1,
-                'Invalid namespace (arg #3)'
-            );
-        }
+        _argValidator.checkString(namespace, 1, 'Invalid namespace (arg #3)');
         this._logger.debug('Patching service account', {
             serviceAccount
         });
@@ -256,10 +242,7 @@ export default class CredentialManager {
             imagePullSecrets: secrets.map((name) => ({ name }))
         });
 
-        const args = ['patch', 'serviceaccount'];
-        if (typeof namespace !== 'undefined') {
-            args.push(`--namespace=${namespace}`);
-        }
+        const args = ['patch', 'serviceaccount', `--namespace=${namespace}`];
         [serviceAccount, `-p=${patch}`].forEach((arg) => args.push(arg));
 
         this._logger.trace('Patch service account args', {

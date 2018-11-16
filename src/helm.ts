@@ -45,13 +45,16 @@ export default class Helm {
             'Invalid chartName (installOptions.chartName)'
         );
 
-        if (typeof installOptions.namespace !== 'undefined') {
-            _argValidator.checkString(
-                installOptions.namespace,
-                1,
-                'Invalid namespace (installOptions.namespace)'
-            );
-        }
+        _argValidator.checkString(
+            installOptions.namespace,
+            1,
+            'Invalid namespace (installOptions.namespace)'
+        );
+
+        _argValidator.checkArray(
+            installOptions.setOptions,
+            'Invalid setOptions (installOptions.setOptions)'
+        );
 
         const args = [
             'upgrade',
@@ -64,7 +67,7 @@ export default class Helm {
         if (installOptions.namespace) {
             args.push(`--namespace=${installOptions.namespace}`);
         }
-        if (installOptions.setOptions) {
+        if (installOptions.setOptions.length > 0) {
             const setArgs = installOptions.setOptions
                 .map(({ key, value }) => `${key}=${value}`)
                 .join(',');

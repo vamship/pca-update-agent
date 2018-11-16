@@ -499,9 +499,7 @@ describe('Manifest', () => {
 
         it('should reject the promise if the an installRecord defines an invalid namespace', () => {
             const readFileMethod = _fsMock.mocks.readFile;
-            const inputs = _testValues
-                .allButSelected('undefined', 'function', 'string')
-                .concat(['']);
+            const inputs = _testValues.allButString('');
 
             return Promise.map(inputs, (namespace) => {
                 const manifest = _createManifest();
@@ -519,20 +517,6 @@ describe('Manifest', () => {
                 return expect(ret).to.be.rejectedWith(
                     /.*Manifest does not conform to expected schema.*namespace.*/
                 );
-            }).then(() => {
-                const manifest = _createManifest();
-                const manifestData = _generateManifestData();
-                manifestData.installRecords.forEach((record) => {
-                    delete record.installOptions.namespace;
-                });
-
-                readFileMethod.reset();
-                const ret = manifest.load();
-
-                const readFileCallback = readFileMethod.stub.args[0][1];
-                readFileCallback(null, JSON.stringify(manifestData));
-
-                return expect(ret).to.be.fulfilled;
             });
         });
 

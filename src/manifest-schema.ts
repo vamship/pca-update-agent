@@ -71,7 +71,7 @@ export default {
                     },
                     installOptions: {
                         type: 'object',
-                        required: ['chartName', 'setOptions'],
+                        required: ['chartName', 'setOptions', 'namespace'],
                         properties: {
                             chartName: {
                                 type: 'string',

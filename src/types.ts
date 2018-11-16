@@ -62,7 +62,7 @@ export interface IPrivateRepoTarget {
     /**
      * The namespace in which the service account resides.
      */
-    namespace?: string;
+    namespace: string;
 }
 
 /**
@@ -78,12 +78,12 @@ export interface IComponentInstallOptions {
     /**
      * The namespace to install the chart into.
      */
-    namespace?: string;
+    namespace: string;
 
     /**
      * An array of set options to apply to the chart.
      */
-    setOptions?: Array<{
+    setOptions: Array<{
         key: string;
         value: string;
     }>;

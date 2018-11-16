@@ -447,9 +447,7 @@ describe('CredentialManager', () => {
         });
 
         it('should throw an error if invoked with an invalid namespace', () => {
-            const inputs = _testValues
-                .allButSelected('undefined', 'string')
-                .concat(['']);
+            const inputs = _testValues.allButString('');
             const error = 'Invalid namespace (arg #3)';
 
             inputs.forEach((namespace) => {
@@ -467,22 +465,6 @@ describe('CredentialManager', () => {
 
                 expect(wrapper).to.throw(error);
             });
-        });
-
-        it('should not throw an error if the namespace is undefined', () => {
-            const wrapper = () => {
-                const credMgr = _createCredentialManager();
-                const credentials = _getCredentials();
-                const secretName = _testValues.getString('secretName');
-
-                return credMgr.createImagePullSecret(
-                    secretName,
-                    credentials,
-                    undefined
-                );
-            };
-
-            expect(wrapper).to.not.throw();
         });
 
         it('should return a promise when invoked', () => {
@@ -512,29 +494,6 @@ describe('CredentialManager', () => {
                         'secret',
                         '--ignore-not-found',
                         `--namespace=${namespace}`,
-                        secretName
-                    ]);
-                });
-        });
-
-        it('should omit the namespace attribute if the namespace is not specified', () => {
-            const execaMethod = _execaMock.mocks.execa;
-            const secretName = _testValues.getString('secretName');
-
-            expect(execaMethod.stub).to.not.have.been.called;
-            _invokeCreateSecret(secretName, undefined, 'UNDEFINED');
-
-            return _asyncHelper
-                .wait(10)()
-                .then(() => {
-                    expect(execaMethod.stub).to.have.been.called;
-                    expect(execaMethod.stub.callCount).to.be.at.least(1);
-                    expect(execaMethod.stub.args[0]).to.have.length(2);
-                    expect(execaMethod.stub.args[0][0]).to.equal('kubectl');
-                    expect(execaMethod.stub.args[0][1]).to.deep.equal([
-                        'delete',
-                        'secret',
-                        '--ignore-not-found',
                         secretName
                     ]);
                 });
@@ -576,36 +535,6 @@ describe('CredentialManager', () => {
                         'secret',
                         'docker-registry',
                         `--namespace=${namespace}`,
-                        secretName,
-                        `--docker-server=${credentials.server}`,
-                        `--docker-username=${credentials.username}`,
-                        `--docker-password=${credentials.password}`,
-                        `--docker-email=${credentials.email}`
-                    ]);
-                });
-        });
-
-        it('should omit the namespace attribute if the namespace is not specified', () => {
-            const execaMethod = _execaMock.mocks.execa;
-            const credentials = _getCredentials();
-            const secretName = _testValues.getString('secretName');
-
-            expect(execaMethod.stub).to.not.have.been.called;
-            _invokeCreateSecret(secretName, credentials, 'UNDEFINED');
-
-            execaMethod.resolve(undefined, 0);
-            return _asyncHelper
-                .wait(10)()
-                .then(() => execaMethod.promise(0))
-                .then(() => {
-                    expect(execaMethod.stub).to.have.been.called;
-                    expect(execaMethod.stub.callCount).to.be.at.least(2);
-                    expect(execaMethod.stub.args[1]).to.have.length(2);
-                    expect(execaMethod.stub.args[1][0]).to.equal('kubectl');
-                    expect(execaMethod.stub.args[1][1]).to.deep.equal([
-                        'create',
-                        'secret',
-                        'docker-registry',
                         secretName,
                         `--docker-server=${credentials.server}`,
                         `--docker-username=${credentials.username}`,
@@ -709,9 +638,7 @@ describe('CredentialManager', () => {
         });
 
         it('should throw an error if invoked with an invalid namespace', () => {
-            const inputs = _testValues
-                .allButSelected('undefined', 'string')
-                .concat(['']);
+            const inputs = _testValues.allButString('');
             const error = 'Invalid namespace (arg #3)';
 
             inputs.forEach((namespace) => {
@@ -733,24 +660,6 @@ describe('CredentialManager', () => {
 
                 expect(wrapper).to.throw(error);
             });
-        });
-
-        it('should not throw an error if the namespace is undefined', () => {
-            const wrapper = () => {
-                const credMgr = _createCredentialManager();
-                const serviceAccount = _testValues.getString('serviceAccount');
-                const secrets = new Array(5).fill(0).map((item, index) => {
-                    return _testValues.getString(`secret_${index}`);
-                });
-
-                return credMgr.applyImagePullSecrets(
-                    serviceAccount,
-                    secrets,
-                    undefined
-                );
-            };
-
-            expect(wrapper).to.not.throw();
         });
 
         it('should patch the secret into the serviceAccount', () => {

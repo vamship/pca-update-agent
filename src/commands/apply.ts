@@ -85,7 +85,7 @@ function _createImagePullSecrets(
     secrets: Array<{
         secretName: string;
         credentials: IContainerCredentials;
-        namespace?: string;
+        namespace: string;
     }>
 ): Promise<any[]> {
     return Promise.map(secrets, ({ secretName, credentials, namespace }) => {
@@ -126,7 +126,7 @@ function _applyImagePullSecrets(
     serviceAccounts: Array<{
         serviceAccount: string;
         secrets: string[];
-        namespace?: string;
+        namespace: string;
     }>
 ): Promise<any[]> {
     return Promise.map(

@@ -280,7 +280,7 @@ describe('[apply command]', () => {
             repos: IPrivateContainerRepoRecord[]
         ): Array<{
             serviceAccount: string;
-            namespace?: string;
+            namespace: string;
             secrets: string[];
         }> {
             const serviceAccountMap = {};
