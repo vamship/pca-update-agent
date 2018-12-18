@@ -99,7 +99,9 @@ export default class Reporter {
             const records = this._recordBuffer;
             this._recordBuffer = [];
 
-            this._logger.trace('POSTing messages to callback endpoint');
+            this._logger.trace('POSTing messages to callback endpoint', {
+                recordBuffer: this._recordBuffer
+            });
             return _fetch(this._endpoint, {
                 method: 'POST',
                 headers: {
