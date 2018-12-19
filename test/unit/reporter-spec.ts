@@ -220,8 +220,14 @@ describe('Reporter', () => {
                 'content-type': 'application/json'
             });
 
+            const payload = JSON.parse(options.body);
+            expect(payload).to.be.an('object');
+            expect(payload).to.have.all.keys('messages');
+
+            const {messages} = payload;
+
             _verifyRecordBuffer(
-                JSON.parse(options.body),
+                messages,
                 startTime,
                 logMessages,
                 successMessages,
