@@ -224,7 +224,7 @@ describe('Reporter', () => {
             expect(payload).to.be.an('object');
             expect(payload).to.have.all.keys('messages');
 
-            const {messages} = payload;
+            const { messages } = payload;
 
             _verifyRecordBuffer(
                 messages,
