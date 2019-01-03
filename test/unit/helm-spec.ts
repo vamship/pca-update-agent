@@ -150,11 +150,14 @@ describe('Helm', () => {
                 .join(',');
 
             expect(execaMethod.stub).to.not.have.been.called;
-            helm.install({
-                chartName,
-                namespace,
-                setOptions
-            });
+            helm.install(
+                {
+                    chartName,
+                    namespace,
+                    setOptions
+                },
+                false
+            );
 
             expect(execaMethod.stub).to.have.been.calledOnce;
             expect(execaMethod.stub.args[0]).to.have.length(2);
@@ -172,6 +175,48 @@ describe('Helm', () => {
             ]);
         });
 
+        it('should set the dry-run flag if dryRun=true', () => {
+            const releaseName = _testValues.getString('releaseName');
+            const helm = _createHelm(releaseName);
+            const execaMethod = _execaMock.mocks.execa;
+
+            const namespace = _testValues.getString('namespace');
+            const chartName = _testValues.getString('chartName');
+            const setOptions = new Array(10).fill(0).map(() => ({
+                key: _testValues.getString('key'),
+                value: _testValues.getString('value')
+            }));
+            const setArgs = setOptions
+                .map(({ key, value }) => `${key}=${value}`)
+                .join(',');
+
+            expect(execaMethod.stub).to.not.have.been.called;
+            helm.install(
+                {
+                    chartName,
+                    namespace,
+                    setOptions
+                },
+                true
+            );
+
+            expect(execaMethod.stub).to.have.been.calledOnce;
+            expect(execaMethod.stub.args[0]).to.have.length(2);
+
+            expect(execaMethod.stub.args[0][0]).to.equal('helm');
+            expect(execaMethod.stub.args[0][1]).to.deep.equal([
+                `upgrade`,
+                releaseName,
+                chartName,
+                '--install',
+                '--debug',
+                '--tls',
+                `--namespace=${namespace}`,
+                `--set=${setArgs}`,
+                '--dry-run'
+            ]);
+        });
+
         it('should omit the set argument if the set options are empty', () => {
             const releaseName = _testValues.getString('releaseName');
             const chartName = _testValues.getString('chartName');
@@ -181,11 +226,14 @@ describe('Helm', () => {
             const execaMethod = _execaMock.mocks.execa;
 
             expect(execaMethod.stub).to.not.have.been.called;
-            helm.install({
-                chartName,
-                namespace,
-                setOptions
-            });
+            helm.install(
+                {
+                    chartName,
+                    namespace,
+                    setOptions
+                },
+                false
+            );
 
             expect(execaMethod.stub).to.have.been.calledOnce;
             expect(execaMethod.stub.args[0]).to.have.length(2);
@@ -241,13 +289,32 @@ describe('Helm', () => {
             expect(ret.then).to.be.a('function');
         });
 
+        it('should omit the purge argument if purge=false', () => {
+            const releaseName = _testValues.getString('releaseName');
+            const helm = _createHelm(releaseName);
+            const execaMethod = _execaMock.mocks.execa;
+
+            expect(execaMethod.stub).to.not.have.been.called;
+            helm.uninstall(false, false);
+
+            expect(execaMethod.stub).to.have.been.calledOnce;
+            expect(execaMethod.stub.args[0]).to.have.length(2);
+
+            expect(execaMethod.stub.args[0][0]).to.equal('helm');
+            expect(execaMethod.stub.args[0][1]).to.deep.equal([
+                `delete`,
+                releaseName,
+                '--tls'
+            ]);
+        });
+
         it('should invoke helm to delete the chart', () => {
             const releaseName = _testValues.getString('releaseName');
             const helm = _createHelm(releaseName);
             const execaMethod = _execaMock.mocks.execa;
 
             expect(execaMethod.stub).to.not.have.been.called;
-            helm.uninstall(true);
+            helm.uninstall(true, false);
 
             expect(execaMethod.stub).to.have.been.calledOnce;
             expect(execaMethod.stub.args[0]).to.have.length(2);
@@ -261,13 +328,13 @@ describe('Helm', () => {
             ]);
         });
 
-        it('should omit the purge argument if purge=false', () => {
+        it('should set the dry-run flag if dryRun=true', () => {
             const releaseName = _testValues.getString('releaseName');
             const helm = _createHelm(releaseName);
             const execaMethod = _execaMock.mocks.execa;
 
             expect(execaMethod.stub).to.not.have.been.called;
-            helm.uninstall(false);
+            helm.uninstall(true, true);
 
             expect(execaMethod.stub).to.have.been.calledOnce;
             expect(execaMethod.stub.args[0]).to.have.length(2);
@@ -276,7 +343,9 @@ describe('Helm', () => {
             expect(execaMethod.stub.args[0][1]).to.deep.equal([
                 `delete`,
                 releaseName,
-                '--tls'
+                '--tls',
+                `--purge`,
+                '--dry-run'
             ]);
         });
 

@@ -32,8 +32,10 @@ export default class Helm {
      *
      * @param chartInfo The chart to install along with the required install
      *        options.
+     * @param dryRun If set to true, the uninstall operation is not actually
+     *        performed. The command is executed in dry run mode instead.
      */
-    public install(chartInfo: IChartInfo) {
+    public install(chartInfo: IChartInfo, dryRun: boolean = false) {
         _argValidator.checkObject(chartInfo, 'Invalid chartInfo (arg #1)');
         _argValidator.checkString(
             chartInfo.chartName,
@@ -69,6 +71,9 @@ export default class Helm {
                 .join(',');
             args.push(`--set=${setArgs}`);
         }
+        if (dryRun) {
+            args.push('--dry-run');
+        }
 
         this._logger.trace('Installing helm chart', {
             args
@@ -82,11 +87,16 @@ export default class Helm {
      *
      * @param purge If set to true, purges the release name, making it available
      *        for reuse.
+     * @param dryRun If set to true, the uninstall operation is not actually
+     *        performed. The command is executed in dry run mode instead.
      */
-    public uninstall(purge: boolean = true) {
+    public uninstall(purge: boolean = true, dryRun: boolean = false) {
         const args = ['delete', this._releaseName, '--tls'];
         if (!!purge) {
             args.push('--purge');
+        }
+        if (dryRun) {
+            args.push('--dry-run');
         }
 
         this._logger.trace('Deleting helm release', {

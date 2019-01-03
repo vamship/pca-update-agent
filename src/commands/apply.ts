@@ -161,8 +161,13 @@ function _applyImagePullSecrets(
  *
  * @private
  * @param components An array containing a list of releases to uninstall.
+ * @param dryRun Determines if the install command has to be executed in dry
+ *        run mode.
  */
-function _uninstallComponents(components: string[]): () => Promise {
+function _uninstallComponents(
+    components: string[],
+    dryRun: boolean
+): () => Promise {
     _logger.trace('Uninstalling components from cluster');
     return Promise.map(components, (releaseName, index) => {
         _logger.trace('Uninstalling component', {
@@ -170,7 +175,7 @@ function _uninstallComponents(components: string[]): () => Promise {
             releaseName
         });
         const helm = new Helm(releaseName);
-        return helm.uninstall(true);
+        return helm.uninstall(true, dryRun);
     }).then(
         () => {
             _logger.trace('Components uninstalled');
@@ -189,8 +194,13 @@ function _uninstallComponents(components: string[]): () => Promise {
  * @private
  * @param installRecords An array containing the component definition, including
  *        the release name, chart name, namespace and install options.
+ * @param dryRun Determines if the install command has to be executed in dry
+ *        run mode.
  */
-function _installComponents(installRecords: IInstallRecord[]): () => Promise {
+function _installComponents(
+    installRecords: IInstallRecord[],
+    dryRun: boolean
+): () => Promise {
     _logger.trace('Installing components on the cluster');
     return Promise.map(installRecords, (installRecord, index) => {
         _logger.trace('Uninstalling component', {
@@ -200,7 +210,7 @@ function _installComponents(installRecords: IInstallRecord[]): () => Promise {
 
         const { releaseName } = installRecord;
         const helm = new Helm(releaseName);
-        return helm.install(installRecord);
+        return helm.install(installRecord, dryRun);
     }).then(
         () => {
             _logger.trace('Components installed');
@@ -255,6 +265,24 @@ export const builder = {
         ].join(' '),
         type: 'string',
         default: () => _configProvider.getConfig().get('credentialProviderAuth')
+    },
+    'dry-run-install': {
+        alias: 'i',
+        describe: [
+            'Execute helm install in dry-run mode, which means',
+            'that the install command will not have any effect'
+        ].join(' '),
+        type: 'boolean',
+        default: () => false
+    },
+    'dry-run-uninstall': {
+        alias: 'i',
+        describe: [
+            'Execute helm uninstall in dry-run mode, which means',
+            'that the uninstall command will not have any effect'
+        ].join(' '),
+        type: 'boolean',
+        default: () => false
     }
 };
 
@@ -369,21 +397,23 @@ export const handler = (argv) => {
         })
         .then(() => {
             const count = manifest.uninstallRecords.length;
+            const { dryRunInstall: dryRun } = argv;
             _logger.info('Uninstalling components', {
                 count
             });
-            reporter.log(`Uninstalling ${count} components`);
+            reporter.log(`Uninstalling ${count} components`, { dryRun });
 
-            return _uninstallComponents(manifest.uninstallRecords);
+            return _uninstallComponents(manifest.uninstallRecords, dryRun);
         })
         .then(() => {
             const count = manifest.installRecords.length;
+            const { dryRunInstall: dryRun } = argv;
             _logger.info('Installing and/or upgrading components', {
                 count
             });
-            reporter.log(`Installing ${count} components`);
+            reporter.log(`Installing ${count} components`, { dryRun });
 
-            return _installComponents(manifest.installRecords);
+            return _installComponents(manifest.installRecords, dryRun);
         })
         .then(() => {
             _logger.info('Update complete. Reporting success');

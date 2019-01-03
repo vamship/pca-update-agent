@@ -27,8 +27,13 @@ describe('[apply command]', () => {
     function _execHandler(args: object = {}) {
         const callbackEndpoint = _testValues.getString('callbackEndpoint');
         const manifestFile = _testValues.getString('manifestFile');
+        const dryRunInstall = false;
+        const dryRunUninstall = false;
 
-        args = Object.assign({ callbackEndpoint, manifestFile }, args);
+        args = Object.assign(
+            { callbackEndpoint, manifestFile, dryRunInstall, dryRunUninstall },
+            args
+        );
 
         return _commandModule.handler(args);
     }
@@ -137,12 +142,30 @@ describe('[apply command]', () => {
                     ].join(' '),
                     type: 'string',
                     default: _configMock.__data.credentialProviderAuth
+                },
+                'dry-run-install': {
+                    alias: 'i',
+                    describe: [
+                        'Execute helm install in dry-run mode, which means',
+                        'that the install command will not have any effect'
+                    ].join(' '),
+                    type: 'boolean',
+                    default: false
+                },
+                'dry-run-uninstall': {
+                    alias: 'i',
+                    describe: [
+                        'Execute helm uninstall in dry-run mode, which means',
+                        'that the uninstall command will not have any effect'
+                    ].join(' '),
+                    type: 'boolean',
+                    default: false
                 }
             };
 
             expect(_commandModule.command).to.equal(expectedCommand);
             expect(_commandModule.describe).to.equal(expectedDescription);
-            Object.keys(_commandModule.builder).forEach((key) => {
+            Object.keys(expectedBuilder).forEach((key) => {
                 const option = _commandModule.builder[key];
                 const expectedOption = expectedBuilder[key];
 
@@ -744,7 +767,10 @@ describe('[apply command]', () => {
 
             expect(uninstallMethod.stub).to.not.have.been.called;
 
-            _execHandler();
+            const args = {
+                dryRunUninstall: _testValues.getNumber(1, 10) < 5
+            };
+            _execHandler(args);
 
             return _manifestMock.mocks.load
                 .resolve()
@@ -775,9 +801,12 @@ describe('[apply command]', () => {
                     );
                     uninstallRecords.forEach((record, index) => {
                         expect(uninstallMethod.stub.args[index]).to.have.length(
-                            1
+                            2
                         );
                         expect(uninstallMethod.stub.args[index][0]).to.be.true;
+                        expect(uninstallMethod.stub.args[index][1]).to.equal(
+                            args.dryRunUninstall
+                        );
                     });
                 });
         });
@@ -923,7 +952,10 @@ describe('[apply command]', () => {
 
             expect(_helmMock.ctor.resetHistory()).to.not.have.been.called;
 
-            _execHandler();
+            const args = {
+                dryRunInstall: _testValues.getNumber(1, 10) < 5
+            };
+            _execHandler(args);
 
             return _manifestMock.mocks.load
                 .resolve()
@@ -958,8 +990,9 @@ describe('[apply command]', () => {
                     expect(installMethod.stub.callCount).to.equal(installCount);
                     installRecords.forEach((installRecord, index) => {
                         const installArgs = installMethod.stub.args[index];
-                        expect(installArgs).to.have.length(1);
+                        expect(installArgs).to.have.length(2);
                         expect(installArgs[0]).to.deep.equal(installRecord);
+                        expect(installArgs[1]).to.equal(args.dryRunInstall);
                     });
                 });
         });
