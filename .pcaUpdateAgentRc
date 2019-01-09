@@ -3,7 +3,10 @@
         "callbackEndpoint": "http://localhost:8000",
         "manifestFile": "/etc/pca/manifest",
         "credentialProviderEndpoint": "http://localhost:8001",
-        "credentialProviderAuth": "authtoken"
+        "credentialProviderAuth": "authtoken",
+        "dryRunInstall": false,
+        "dryRunUninstall": false,
+        "repoList": ""
   },
   "development": {
   },
