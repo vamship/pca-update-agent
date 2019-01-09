@@ -8,6 +8,29 @@ import { IChartInfo, ILogger } from './types';
  * message based on the result of execution.
  */
 export default class Helm {
+    /**
+     * Adds a reference to an existing helm repository.
+     *
+     * @param repoName The name of the repo as referenced by helm commands.
+     * @param repoUrl The location of the repository.
+     */
+    public static addRepository(
+        repoName: string,
+        repoUrl: string
+    ): Promise<any> {
+        _argValidator.checkString(repoName, 1, 'Invalid repoName (arg #1)');
+        _argValidator.checkString(repoUrl, 1, 'Invalid repoUrl (arg #2)');
+
+        return _execa('helm', ['repo', 'add', repoName, repoUrl]);
+    }
+
+    /**
+     * Updates the local repo indices.
+     */
+    public static updateRepositories(): Promise<any> {
+        return _execa('helm', ['repo', 'update']);
+    }
+
     private _releaseName: string;
     private _logger: ILogger;
 
@@ -35,7 +58,10 @@ export default class Helm {
      * @param dryRun If set to true, the uninstall operation is not actually
      *        performed. The command is executed in dry run mode instead.
      */
-    public install(chartInfo: IChartInfo, dryRun: boolean = false) {
+    public install(
+        chartInfo: IChartInfo,
+        dryRun: boolean = false
+    ): Promise<any> {
         _argValidator.checkObject(chartInfo, 'Invalid chartInfo (arg #1)');
         _argValidator.checkString(
             chartInfo.chartName,
@@ -90,7 +116,10 @@ export default class Helm {
      * @param dryRun If set to true, the uninstall operation is not actually
      *        performed. The command is executed in dry run mode instead.
      */
-    public uninstall(purge: boolean = true, dryRun: boolean = false) {
+    public uninstall(
+        purge: boolean = true,
+        dryRun: boolean = false
+    ): Promise<any> {
         const args = ['delete', this._releaseName, '--tls'];
         if (!!purge) {
             args.push('--purge');

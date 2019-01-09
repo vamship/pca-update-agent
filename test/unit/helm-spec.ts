@@ -29,6 +29,11 @@ describe('Helm', () => {
         });
     });
 
+    describe('[static members]', () => {
+        expect(Helm.addRepository).to.be.a('function');
+        expect(Helm.updateRepositories).to.be.a('function');
+    });
+
     describe('ctor()', () => {
         it('should throw an error if invoked without a valid release name', () => {
             const inputs = _testValues.allButString('');
@@ -50,6 +55,136 @@ describe('Helm', () => {
             expect(helm).to.be.an('object');
             expect(helm.install).to.be.a('function');
             expect(helm.uninstall).to.be.a('function');
+        });
+    });
+
+    describe('addRepository()', () => {
+        function _invokeMethod(
+            repoName: string = _testValues.getString('repoName'),
+            repoUrl: string = _testValues.getString('repoUrl')
+        ): Promise<any> {
+            return Helm.addRepository(repoName, repoUrl);
+        }
+
+        it('should throw an error invoked without a valid repoName', () => {
+            const inputs = _testValues.allButString('');
+            const error = 'Invalid repoName (arg #1)';
+
+            inputs.forEach((repoName) => {
+                const wrapper = () => {
+                    return Helm.addRepository(repoName);
+                };
+
+                expect(wrapper).to.throw(error);
+            });
+        });
+
+        it('should throw an error invoked without a valid repoUrl', () => {
+            const inputs = _testValues.allButString('');
+            const error = 'Invalid repoUrl (arg #2)';
+
+            inputs.forEach((repoUrl) => {
+                const wrapper = () => {
+                    const repoName = _testValues.getString('repoName');
+                    return Helm.addRepository(repoName, repoUrl);
+                };
+
+                expect(wrapper).to.throw(error);
+            });
+        });
+
+        it('should return a promise when invoked', () => {
+            const ret = _invokeMethod();
+
+            expect(ret).to.be.an('object');
+            expect(ret.then).to.be.a('function');
+        });
+
+        it('should add the specified repo to helm', () => {
+            const repoName = _testValues.getString('repoName');
+            const repoUrl = _testValues.getString('repoName');
+            const execaMethod = _execaMock.mocks.execa;
+
+            expect(execaMethod.stub).to.not.have.been.called;
+            _invokeMethod(repoName, repoUrl);
+
+            expect(execaMethod.stub).to.have.been.calledOnce;
+            expect(execaMethod.stub.args[0]).to.have.length(2);
+
+            expect(execaMethod.stub.args[0][0]).to.equal('helm');
+            expect(execaMethod.stub.args[0][1]).to.deep.equal([
+                'repo',
+                'add',
+                repoName,
+                repoUrl
+            ]);
+        });
+
+        it('should reject the promise if command execution fails', () => {
+            const execaMethod = _execaMock.mocks.execa;
+            const error = new Error('something went wrong!');
+
+            const ret = _invokeMethod();
+            execaMethod.reject(error);
+
+            return expect(ret).to.be.rejectedWith(error);
+        });
+
+        it('should resolve the promise if command execution succeeds', () => {
+            const execaMethod = _execaMock.mocks.execa;
+
+            const ret = _invokeMethod();
+            execaMethod.resolve();
+
+            return expect(ret).to.be.fulfilled;
+        });
+    });
+
+    describe('updateRepositories()', () => {
+        function _invokeMethod(): Promise<any> {
+            return Helm.updateRepositories();
+        }
+
+        it('should return a promise when invoked', () => {
+            const ret = _invokeMethod();
+
+            expect(ret).to.be.an('object');
+            expect(ret.then).to.be.a('function');
+        });
+
+        it('should use helm to update the local repository indices', () => {
+            const execaMethod = _execaMock.mocks.execa;
+
+            expect(execaMethod.stub).to.not.have.been.called;
+            _invokeMethod();
+
+            expect(execaMethod.stub).to.have.been.calledOnce;
+            expect(execaMethod.stub.args[0]).to.have.length(2);
+
+            expect(execaMethod.stub.args[0][0]).to.equal('helm');
+            expect(execaMethod.stub.args[0][1]).to.deep.equal([
+                'repo',
+                'update'
+            ]);
+        });
+
+        it('should reject the promise if command execution fails', () => {
+            const execaMethod = _execaMock.mocks.execa;
+            const error = new Error('something went wrong!');
+
+            const ret = _invokeMethod();
+            execaMethod.reject(error);
+
+            return expect(ret).to.be.rejectedWith(error);
+        });
+
+        it('should resolve the promise if command execution succeeds', () => {
+            const execaMethod = _execaMock.mocks.execa;
+
+            const ret = _invokeMethod();
+            execaMethod.resolve();
+
+            return expect(ret).to.be.fulfilled;
         });
     });
 
@@ -302,7 +437,7 @@ describe('Helm', () => {
 
             expect(execaMethod.stub.args[0][0]).to.equal('helm');
             expect(execaMethod.stub.args[0][1]).to.deep.equal([
-                `delete`,
+                'delete',
                 releaseName,
                 '--tls'
             ]);
@@ -321,7 +456,7 @@ describe('Helm', () => {
 
             expect(execaMethod.stub.args[0][0]).to.equal('helm');
             expect(execaMethod.stub.args[0][1]).to.deep.equal([
-                `delete`,
+                'delete',
                 releaseName,
                 '--tls',
                 `--purge`
@@ -341,7 +476,7 @@ describe('Helm', () => {
 
             expect(execaMethod.stub.args[0][0]).to.equal('helm');
             expect(execaMethod.stub.args[0][1]).to.deep.equal([
-                `delete`,
+                'delete',
                 releaseName,
                 '--tls',
                 `--purge`,
