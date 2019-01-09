@@ -167,7 +167,7 @@ function _applyImagePullSecrets(
 function _uninstallComponents(
     components: string[],
     dryRun: boolean
-): () => Promise {
+): Promise<any> {
     _logger.trace('Uninstalling components from cluster');
     return Promise.map(components, (releaseName, index) => {
         _logger.trace('Uninstalling component', {
@@ -200,7 +200,7 @@ function _uninstallComponents(
 function _installComponents(
     installRecords: IInstallRecord[],
     dryRun: boolean
-): () => Promise {
+): Promise<any> {
     _logger.trace('Installing components on the cluster');
     return Promise.map(installRecords, (installRecord, index) => {
         _logger.trace('Uninstalling component', {
@@ -217,6 +217,35 @@ function _installComponents(
         },
         (err) => {
             const message = 'Error installing components';
+            _logger.error(err, message);
+            throw new Error(message);
+        }
+    );
+}
+
+/**
+ * Add repo references to helm and update indices.
+ *
+ * @private
+ * @param repoList An array containing repo names and urls. Each name/url pair
+ *        will be added to helm
+ */
+function _addRepos(
+    repoList: Array<{ repoName: string; repoUrl: string }>
+): Promise<any> {
+    return Promise.map(repoList, ({ repoName, repoUrl }) => {
+        _logger.trace('Adding repo', {
+            repoName,
+            repoUrl
+        });
+
+        return Helm.addRepository(repoName, repoUrl);
+    }).then(
+        () => {
+            _logger.trace('Repo list added');
+        },
+        (err) => {
+            const message = 'Error adding helm repo';
             _logger.error(err, message);
             throw new Error(message);
         }
@@ -273,7 +302,7 @@ export const builder = {
             'that the install command will not have any effect'
         ].join(' '),
         type: 'boolean',
-        default: () => false
+        default: () => _configProvider.getConfig().get('dryRunInstall')
     },
     'dry-run-uninstall': {
         alias: 'i',
@@ -282,7 +311,18 @@ export const builder = {
             'that the uninstall command will not have any effect'
         ].join(' '),
         type: 'boolean',
-        default: () => false
+        default: () => _configProvider.getConfig().get('dryRunUninstall')
+    },
+    'repo-list': {
+        alias: 'r',
+        describe: [
+            'A string that defines a list of helm stores that will',
+            'be accessed by the update agent. The string must be',
+            'in the format:',
+            '<repoName>,<repoUrl>|<repoName>,<repoUrl>'
+        ].join(' '),
+        type: 'string',
+        default: () => _configProvider.getConfig().get('repoList')
     }
 };
 
@@ -304,6 +344,37 @@ export const handler = (argv) => {
 
         reporter.log('Objects initialized');
     })
+        .then(() => {
+            reporter.log(`Parsing repoList argument ${argv.repoList}`);
+            const repoList = argv.repoList.split('|').map((repoInfo) => {
+                const tokens = repoInfo.split(',');
+                return {
+                    repoName: tokens[0],
+                    repoUrl: tokens[1]
+                };
+            });
+            const count = repoList.length;
+
+            _logger.info('Adding repositories to helm');
+            reporter.log(`Adding ${count} repositories to helm`);
+
+            return _addRepos(repoList);
+        })
+        .then(() => {
+            _logger.trace('Updating helm repositories');
+            reporter.log('Updating helm repositories');
+
+            return Helm.updateRepositories().then(
+                () => {
+                    _logger.trace('Repo list updated');
+                },
+                (err) => {
+                    const message = 'Error updating helm repositories';
+                    _logger.error(err, message);
+                    throw new Error(message);
+                }
+            );
+        })
         .then(() => {
             const path = argv.manifestFile;
             _logger.info('Loading manifest file', { path });

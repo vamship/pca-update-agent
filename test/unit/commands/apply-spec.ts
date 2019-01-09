@@ -14,6 +14,7 @@ import {
     ObjectMock,
     testValues as _testValues
 } from '@vamship/test-utils';
+import { Promise } from 'bluebird';
 
 import {
     IContainerCredentials,
@@ -29,9 +30,24 @@ describe('[apply command]', () => {
         const manifestFile = _testValues.getString('manifestFile');
         const dryRunInstall = false;
         const dryRunUninstall = false;
+        const repoList = new Array(10)
+            .fill(0)
+            .map(
+                () =>
+                    `${_testValues.getString(
+                        'repoName'
+                    )},https://${_testValues.getString('repoUrl')}`
+            )
+            .join('|');
 
         args = Object.assign(
-            { callbackEndpoint, manifestFile, dryRunInstall, dryRunUninstall },
+            {
+                callbackEndpoint,
+                manifestFile,
+                dryRunInstall,
+                dryRunUninstall,
+                repoList
+            },
             args
         );
 
@@ -56,7 +72,18 @@ describe('[apply command]', () => {
             ),
             credentialProviderAuth: _testValues.getString(
                 'credentialProviderAuth'
-            )
+            ),
+            dryRunInstall: _testValues.getNumber(1, 10) < 5,
+            dryRunUninstall: _testValues.getNumber(1, 10) < 5,
+            repoList: new Array(10)
+                .fill(0)
+                .map(
+                    () =>
+                        `${_testValues.getString(
+                            'repoName'
+                        )},https://${_testValues.getString('repoUrl')}`
+                )
+                .join('|')
         };
 
         _reporterMock = new ObjectMock()
@@ -78,6 +105,14 @@ describe('[apply command]', () => {
         _helmMock = new ObjectMock()
             .addPromiseMock('install')
             .addPromiseMock('uninstall');
+
+        _helmMock.__static = new ObjectMock()
+            .addPromiseMock('addRepository')
+            .addPromiseMock('updateRepositories');
+
+        ['addRepository', 'updateRepositories'].forEach((method) => {
+            _helmMock.ctor[method] = _helmMock.__static.instance[method];
+        });
 
         _commandModule.__set__('config_1', {
             default: {
@@ -150,7 +185,7 @@ describe('[apply command]', () => {
                         'that the install command will not have any effect'
                     ].join(' '),
                     type: 'boolean',
-                    default: false
+                    default: _configMock.__data.dryRunInstall
                 },
                 'dry-run-uninstall': {
                     alias: 'i',
@@ -159,7 +194,18 @@ describe('[apply command]', () => {
                         'that the uninstall command will not have any effect'
                     ].join(' '),
                     type: 'boolean',
-                    default: false
+                    default: _configMock.__data.dryRunInstall
+                },
+                'repo-list': {
+                    alias: 'r',
+                    describe: [
+                        'A string that defines a list of helm stores that will',
+                        'be accessed by the update agent. The string must be',
+                        'in the format:',
+                        '<repoName>,<repoUrl>|<repoName>,<repoUrl>'
+                    ].join(' '),
+                    type: 'string',
+                    default: _configMock.__data.repoList
                 }
             };
 
@@ -328,6 +374,101 @@ describe('[apply command]', () => {
             );
         }
 
+        enum Tasks {
+            INITIALIZE_OBJECTS = 0,
+            ADD_REPOS,
+            UPDATE_REPOS,
+            LOAD_MANIFEST,
+            FETCH_CREDENTIALS,
+            CREATE_IMAGE_PULL_SECRETS,
+            APPLY_IMAGE_PULL_SECRETS,
+            UNINSTALL_COMPONENTS,
+            INSTALL_COMPONENTS,
+            END
+        }
+
+        function _runUntilTask(depth: Tasks): Promise<any> {
+            const addRepositoryMethod = _helmMock.__static.mocks.addRepository;
+            const updateRepositoriesMethod =
+                _helmMock.__static.mocks.updateRepositories;
+            const loadMethod = _manifestMock.mocks.load;
+
+            const actions = [
+                () => undefined,
+                () => {
+                    const count = addRepositoryMethod.stub.callCount;
+                    return Promise.map(new Array(count).fill(0), (arg, index) =>
+                        addRepositoryMethod.resolve(undefined, index)
+                    );
+                },
+                () => updateRepositoriesMethod.resolve(),
+                () => loadMethod.resolve(),
+                () => {
+                    const repoCount =
+                        _manifestMock.instance.privateContainerRepos.length;
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.fetchContainerCredentials,
+                        repoCount,
+                        -1,
+                        _generateCredentials
+                    );
+                },
+                (credentials) => {
+                    const repos = _manifestMock.instance.privateContainerRepos;
+                    const secretList = _buildSecretList(credentials, repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.createImagePullSecret,
+                        secretList.length
+                    );
+                },
+                () => {
+                    const repos = _manifestMock.instance.privateContainerRepos;
+                    const serviceAccountList = _buildServiceAccountList(repos);
+                    return _bulkComplete(
+                        _credentialManagerMock.mocks.applyImagePullSecrets,
+                        serviceAccountList.length
+                    );
+                },
+                () => {
+                    const uninstallCount =
+                        _manifestMock.instance.uninstallRecords.length;
+                    return _bulkComplete(
+                        _helmMock.mocks.uninstall,
+                        uninstallCount
+                    );
+                },
+                () => {
+                    const installCount =
+                        _manifestMock.instance.installRecords.length;
+                    return _bulkComplete(_helmMock.mocks.install, installCount);
+                }
+            ];
+
+            return actions
+                .reduce((result, action, index) => {
+                    if (index < depth) {
+                        return result.then(action);
+                    } else {
+                        return result;
+                    }
+                }, Promise.resolve())
+                .then((result) => {
+                    return _asyncHelper
+                        .wait(1)()
+                        .then(() => result);
+                });
+        }
+
+        function _verifyCleanup(): () => void {
+            return () => {
+                const failMethod = _reporterMock.mocks.fail;
+                const flushMethod = _reporterMock.mocks.flush;
+
+                expect(failMethod.stub).to.have.been.calledOnce;
+                expect(flushMethod.stub).to.have.been.calledOnce;
+            };
+        }
+
         it('should return a promise when invoked', () => {
             const ret = _execHandler();
 
@@ -396,6 +537,97 @@ describe('[apply command]', () => {
             );
         });
 
+        it('should add each repo index to the local helm installation', () => {
+            const addRepositoryMethod = _helmMock.__static.mocks.addRepository;
+            const repoCount = _testValues.getNumber(1, 10);
+            const repoList = new Array(repoCount).fill(0).map(() => ({
+                repoName: _testValues.getString('repoName'),
+                repoUrl: _testValues.getString('repoUrl')
+            }));
+
+            expect(addRepositoryMethod.stub).to.not.have.been.called;
+            _execHandler({
+                repoList: repoList
+                    .map(({ repoName, repoUrl }) => `${repoName},${repoUrl}`)
+                    .join('|')
+            });
+
+            return _runUntilTask(Tasks.INITIALIZE_OBJECTS).then(() => {
+                expect(addRepositoryMethod.stub).to.have.been.called;
+                expect(addRepositoryMethod.stub.callCount).to.equal(repoCount);
+                repoList.forEach((repoData, index) => {
+                    const call = addRepositoryMethod.stub.getCall(index);
+                    const { repoName, repoUrl } = repoData;
+
+                    expect(call).to.have.been.calledWithExactly(
+                        repoName,
+                        repoUrl
+                    );
+                });
+            });
+        });
+
+        it('should report failure and reject the promise any of the repo add methods fail', () => {
+            const addRepositoryMethod = _helmMock.__static.mocks.addRepository;
+            const addRepoError = new Error('something went wrong!');
+            const expectedError = 'Error adding helm repo';
+
+            const repoCount = _testValues.getNumber(1, 10);
+            const repoList = new Array(repoCount).fill(0).map(() => ({
+                repoName: _testValues.getString('repoName'),
+                repoUrl: _testValues.getString('repoUrl')
+            }));
+
+            const ret = _execHandler({
+                repoList: repoList
+                    .map(({ repoName, repoUrl }) => `${repoName},${repoUrl}`)
+                    .join('|')
+            });
+
+            _runUntilTask(Tasks.INITIALIZE_OBJECTS)
+                .then(() => {
+                    const failIndex = Math.floor(Math.random() * repoCount);
+                    return addRepositoryMethod.reject(addRepoError, failIndex);
+                })
+                .catch((err) => undefined) // Eat this error, checking for rejection later
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
+        });
+
+        it('should update helm repos if repos were added successfully', () => {
+            const updateRepositoriesMethod =
+                _helmMock.__static.mocks.updateRepositories;
+
+            expect(updateRepositoriesMethod.stub).to.not.have.been.called;
+
+            _execHandler();
+
+            return _runUntilTask(Tasks.UPDATE_REPOS).then(() => {
+                expect(updateRepositoriesMethod.stub).to.have.been.calledOnce;
+            });
+        });
+
+        it('should report failure and reject the promise if the update method fails', () => {
+            const updateRepositoriesMethod =
+                _helmMock.__static.mocks.updateRepositories;
+            const updateRepoError = new Error('something went wrong!');
+            const expectedError = 'Error updating helm repositories';
+
+            const ret = _execHandler();
+
+            _runUntilTask(Tasks.UPDATE_REPOS)
+                .then(() => updateRepositoriesMethod.reject(updateRepoError))
+                .catch((err) => undefined) // Eat this error, checking for rejection later
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
+        });
+
         it('should load the manifest file from the file system', () => {
             const loadMethod = _manifestMock.mocks.load;
 
@@ -403,39 +635,27 @@ describe('[apply command]', () => {
 
             _execHandler();
 
-            return _asyncHelper
-                .wait(10)()
-                .then(() => {
-                    expect(loadMethod.stub).to.have.been.calledOnce;
-                    expect(loadMethod.stub.args[0]).to.have.length(0);
-                });
+            return _runUntilTask(Tasks.LOAD_MANIFEST).then(() => {
+                expect(loadMethod.stub).to.have.been.calledOnce;
+                expect(loadMethod.stub).to.have.been.calledWithExactly();
+            });
         });
 
         it('should report failure and reject the promise if the manifest load fails', () => {
             const loadMethod = _manifestMock.mocks.load;
-            const failMethod = _reporterMock.mocks.fail;
-            const flushMethod = _reporterMock.mocks.flush;
             const loadError = new Error('something went wrong!');
             const expectedError = 'Error loading manifest file';
 
-            expect(failMethod.stub).to.not.have.been.called;
-            expect(flushMethod.stub).to.not.have.been.called;
-
             const ret = _execHandler();
 
-            return loadMethod
-                .reject(loadError)
-                .catch((err) => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret)
-                        .to.be.rejectedWith(expectedError)
-                        .then(() => {
-                            expect(failMethod.stub).to.have.been.calledOnce;
-                            expect(flushMethod.stub).to.have.been.calledOnce;
-                        });
-                });
+            _runUntilTask(Tasks.LOAD_MANIFEST)
+                .then(() => loadMethod.reject(loadError))
+                .catch((err) => undefined) // Eat this error, checking for rejection later
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
         });
 
         it('should fetch credentials for every repository identified in the manifest', () => {
@@ -450,61 +670,42 @@ describe('[apply command]', () => {
 
             _execHandler();
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(_asyncHelper.wait(10))
-                .then(() => {
-                    expect(fetchCredentialsMethod.stub).to.have.been.called;
-                    expect(fetchCredentialsMethod.stub.callCount).to.equal(
-                        expectedRepos.length
-                    );
+            return _runUntilTask(Tasks.FETCH_CREDENTIALS).then(() => {
+                expect(fetchCredentialsMethod.stub).to.have.been.called;
+                expect(fetchCredentialsMethod.stub.callCount).to.equal(
+                    expectedRepos.length
+                );
 
-                    expectedRepos.forEach((repo, index) => {
-                        expect(
-                            fetchCredentialsMethod.stub.args[index][0]
-                        ).to.equal(repo.repoUri);
-                    });
+                expectedRepos.forEach((repo, index) => {
+                    expect(fetchCredentialsMethod.stub.args[index][0]).to.equal(
+                        repo.repoUri
+                    );
                 });
+            });
         });
 
         it('should report failure and reject the promise if any one of the credential fetches fails', () => {
-            const failMethod = _reporterMock.mocks.fail;
-            const flushMethod = _reporterMock.mocks.flush;
-
             const failIndex = _testValues.getNumber(10, 5);
             const expectedRepos = _getPrivateContainerRepos(failIndex * 2);
             _manifestMock.instance.privateContainerRepos = expectedRepos;
+
             const expectedError = 'Error fetching container credentials';
 
-            expect(failMethod.stub).to.not.have.been.called;
-            expect(flushMethod.stub).to.not.have.been.called;
-
             const ret = _execHandler();
-            ret.catch((ex) => {
-                // Eat this exception to avoid warnings.
-                // We are checking for rejection later.
-            });
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
+            _runUntilTask(Tasks.FETCH_CREDENTIALS)
+                .then(() =>
+                    _bulkComplete(
                         _credentialManagerMock.mocks.fetchContainerCredentials,
                         failIndex * 2,
                         failIndex
-                    );
-                })
-                .then(() => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret)
-                        .to.be.rejectedWith(expectedError)
-                        .then(() => {
-                            expect(failMethod.stub).to.have.been.calledOnce;
-                            expect(flushMethod.stub).to.have.been.calledOnce;
-                        });
-                });
+                    )
+                )
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
         });
 
         it('should create secrets for every target specified', () => {
@@ -519,17 +720,8 @@ describe('[apply command]', () => {
 
             _execHandler();
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount,
-                        -1,
-                        _generateCredentials
-                    );
-                })
-                .then((credentials) => {
+            return _runUntilTask(Tasks.CREATE_IMAGE_PULL_SECRETS).then(
+                (credentials) => {
                     const expectedSecrets = _buildSecretList(
                         credentials,
                         expectedRepos
@@ -548,58 +740,35 @@ describe('[apply command]', () => {
                         expect(args[1]).to.deep.equal(secret.credentials);
                         expect(args[2]).to.deep.equal(secret.namespace);
                     });
-                });
+                }
+            );
         });
 
         it('should report failure and reject the promise if any one of the secret creations fails', () => {
-            const failMethod = _reporterMock.mocks.fail;
-            const flushMethod = _reporterMock.mocks.flush;
-
             const repoCount = _testValues.getNumber(10, 5);
             const repos = _getPrivateContainerRepos(repoCount);
             _manifestMock.instance.privateContainerRepos = repos;
 
             const expectedError = 'Error creating image pull secrets';
 
-            expect(failMethod.stub).to.not.have.been.called;
-            expect(flushMethod.stub).to.not.have.been.called;
-
             const ret = _execHandler();
-            ret.catch((ex) => {
-                // Eat this exception to avoid warnings.
-                // We are checking for rejection later.
-            });
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount,
-                        -1,
-                        _generateCredentials
-                    );
-                })
+            _runUntilTask(Tasks.CREATE_IMAGE_PULL_SECRETS)
                 .then((credentials) => {
                     const secretList = _buildSecretList(credentials, repos);
                     const failIndex = _testValues.getNumber(secretList.length);
-                    _bulkComplete(
+
+                    return _bulkComplete(
                         _credentialManagerMock.mocks.createImagePullSecret,
                         secretList.length,
                         failIndex
                     );
                 })
-                .then(() => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret)
-                        .to.be.rejectedWith(expectedError)
-                        .then(() => {
-                            expect(failMethod.stub).to.have.been.calledOnce;
-                            expect(flushMethod.stub).to.have.been.calledOnce;
-                        });
-                });
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
         });
 
         it('should patch the service account with the correct image pull secrets', () => {
@@ -614,99 +783,49 @@ describe('[apply command]', () => {
 
             _execHandler();
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount,
-                        -1,
-                        _generateCredentials
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    expect(applyImagePullSecretsMethod.stub).to.have.been
-                        .called;
-                    expect(applyImagePullSecretsMethod.stub.callCount).to.equal(
-                        serviceAccountList.length
-                    );
+            return _runUntilTask(Tasks.APPLY_IMAGE_PULL_SECRETS).then(() => {
+                const serviceAccountList = _buildServiceAccountList(repos);
+                expect(applyImagePullSecretsMethod.stub).to.have.been.called;
+                expect(applyImagePullSecretsMethod.stub.callCount).to.equal(
+                    serviceAccountList.length
+                );
 
-                    serviceAccountList.forEach((serviceAccount, index) => {
-                        const args =
-                            applyImagePullSecretsMethod.stub.args[index];
-                        expect(args[0]).to.equal(serviceAccount.serviceAccount);
-                        expect(args[1]).to.deep.equal(serviceAccount.secrets);
-                        expect(args[2]).to.deep.equal(serviceAccount.namespace);
-                    });
+                serviceAccountList.forEach((serviceAccount, index) => {
+                    const args = applyImagePullSecretsMethod.stub.args[index];
+                    expect(args[0]).to.equal(serviceAccount.serviceAccount);
+                    expect(args[1]).to.deep.equal(serviceAccount.secrets);
+                    expect(args[2]).to.deep.equal(serviceAccount.namespace);
                 });
+            });
         });
 
         it('should report failure and reject the promise if any one of the apply operations fails', () => {
-            const failMethod = _reporterMock.mocks.fail;
-            const flushMethod = _reporterMock.mocks.flush;
-
             const repoCount = _testValues.getNumber(10, 5);
             const repos = _getPrivateContainerRepos(repoCount);
             _manifestMock.instance.privateContainerRepos = repos;
 
             const expectedError = 'Error applying image pull secrets';
 
-            expect(failMethod.stub).to.not.have.been.called;
-            expect(flushMethod.stub).to.not.have.been.called;
-
             const ret = _execHandler();
-            ret.catch((ex) => {
-                // Eat this exception to avoid warnings.
-                // We are checking for rejection later.
-            });
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount,
-                        -1,
-                        _generateCredentials
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
+            _runUntilTask(Tasks.APPLY_IMAGE_PULL_SECRETS)
                 .then(() => {
                     const serviceAccountList = _buildServiceAccountList(repos);
                     const failIndex = _testValues.getNumber(
                         serviceAccountList.length
                     );
+
                     return _bulkComplete(
                         _credentialManagerMock.mocks.applyImagePullSecrets,
                         serviceAccountList.length,
                         failIndex
                     );
                 })
-                .then(() => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret)
-                        .to.be.rejectedWith(expectedError)
-                        .then(() => {
-                            expect(failMethod.stub).to.have.been.calledOnce;
-                            expect(flushMethod.stub).to.have.been.calledOnce;
-                        });
-                });
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
         });
 
         it('should create a new Helm object for each record in the uninstall list of the manifest', () => {
@@ -722,36 +841,14 @@ describe('[apply command]', () => {
 
             _execHandler();
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    expect(_helmMock.ctor).to.have.been.called;
-                    expect(_helmMock.ctor.callCount).to.equal(uninstallCount);
-                    uninstallRecords.forEach((record, index) => {
-                        expect(_helmMock.ctor.args[index]).to.have.length(1);
-                        expect(_helmMock.ctor.args[index][0]).to.equal(record);
-                    });
+            return _runUntilTask(Tasks.UNINSTALL_COMPONENTS).then(() => {
+                expect(_helmMock.ctor).to.have.been.called;
+                expect(_helmMock.ctor.callCount).to.equal(uninstallCount);
+                uninstallRecords.forEach((record, index) => {
+                    expect(_helmMock.ctor.args[index]).to.have.length(1);
+                    expect(_helmMock.ctor.args[index][0]).to.equal(record);
                 });
+            });
         });
 
         it('should uninstall each record in the uninstall list', () => {
@@ -770,51 +867,23 @@ describe('[apply command]', () => {
             const args = {
                 dryRunUninstall: _testValues.getNumber(1, 10) < 5
             };
+
             _execHandler(args);
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
+            return _runUntilTask(Tasks.UNINSTALL_COMPONENTS).then(() => {
+                expect(uninstallMethod.stub).to.have.been.called;
+                expect(uninstallMethod.stub.callCount).to.equal(uninstallCount);
+                uninstallRecords.forEach((record, index) => {
+                    expect(uninstallMethod.stub.args[index]).to.have.length(2);
+                    expect(uninstallMethod.stub.args[index][0]).to.be.true;
+                    expect(uninstallMethod.stub.args[index][1]).to.equal(
+                        args.dryRunUninstall
                     );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    expect(uninstallMethod.stub).to.have.been.called;
-                    expect(uninstallMethod.stub.callCount).to.equal(
-                        uninstallCount
-                    );
-                    uninstallRecords.forEach((record, index) => {
-                        expect(uninstallMethod.stub.args[index]).to.have.length(
-                            2
-                        );
-                        expect(uninstallMethod.stub.args[index][0]).to.be.true;
-                        expect(uninstallMethod.stub.args[index][1]).to.equal(
-                            args.dryRunUninstall
-                        );
-                    });
                 });
+            });
         });
 
         it('should report failure and reject the promise if any one of the uninstalls fails', () => {
-            const failMethod = _reporterMock.mocks.fail;
-            const flushMethod = _reporterMock.mocks.flush;
-
             const repoCount = _testValues.getNumber(10, 5);
             const repos = _getPrivateContainerRepos(repoCount);
             _manifestMock.instance.privateContainerRepos = repos;
@@ -825,55 +894,21 @@ describe('[apply command]', () => {
 
             const expectedError = 'Error uninstalling component';
 
-            expect(failMethod.stub).to.not.have.been.called;
-            expect(flushMethod.stub).to.not.have.been.called;
-
             const ret = _execHandler();
-            ret.catch((ex) => {
-                // Eat this exception to avoid warnings.
-                // We are checking for rejection later.
-            });
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(
+            _runUntilTask(Tasks.UNINSTALL_COMPONENTS)
+                .then(() =>
+                    _bulkComplete(
                         _helmMock.mocks.uninstall,
                         failIndex * 2,
                         failIndex
-                    );
-                })
-                .then(() => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret)
-                        .to.be.rejectedWith(expectedError)
-                        .then(() => {
-                            expect(failMethod.stub).to.have.been.calledOnce;
-                            expect(flushMethod.stub).to.have.been.calledOnce;
-                        });
-                });
+                    )
+                )
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
         });
 
         it('should create a new Helm object for each record in the install list of the manifest', () => {
@@ -893,46 +928,18 @@ describe('[apply command]', () => {
 
             _execHandler();
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(
-                        _helmMock.mocks.uninstall,
-                        uninstallCount
-                    );
-                })
-                .then(() => {
-                    const expectedCount = installCount + uninstallCount;
-                    expect(_helmMock.ctor).to.have.been.called;
-                    expect(_helmMock.ctor.callCount).to.equal(expectedCount);
-                    installRecords.forEach((installRecord, index) => {
-                        const { releaseName } = installRecord;
-                        const ctorArgs =
-                            _helmMock.ctor.args[uninstallCount + index];
-                        expect(ctorArgs).to.have.length(1);
-                        expect(ctorArgs[0]).to.equal(releaseName);
-                    });
+            return _runUntilTask(Tasks.INSTALL_COMPONENTS).then(() => {
+                const expectedCount = installCount + uninstallCount;
+                expect(_helmMock.ctor).to.have.been.called;
+                expect(_helmMock.ctor.callCount).to.equal(expectedCount);
+                installRecords.forEach((installRecord, index) => {
+                    const { releaseName } = installRecord;
+                    const ctorArgs =
+                        _helmMock.ctor.args[uninstallCount + index];
+                    expect(ctorArgs).to.have.length(1);
+                    expect(ctorArgs[0]).to.equal(releaseName);
                 });
+            });
         });
 
         it('should install each component in the install list', () => {
@@ -955,52 +962,22 @@ describe('[apply command]', () => {
             const args = {
                 dryRunInstall: _testValues.getNumber(1, 10) < 5
             };
+
             _execHandler(args);
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(
-                        _helmMock.mocks.uninstall,
-                        uninstallCount
-                    );
-                })
-                .then(() => {
-                    expect(installMethod.stub).to.have.been.called;
-                    expect(installMethod.stub.callCount).to.equal(installCount);
-                    installRecords.forEach((installRecord, index) => {
-                        const installArgs = installMethod.stub.args[index];
-                        expect(installArgs).to.have.length(2);
-                        expect(installArgs[0]).to.deep.equal(installRecord);
-                        expect(installArgs[1]).to.equal(args.dryRunInstall);
-                    });
+            return _runUntilTask(Tasks.INSTALL_COMPONENTS).then(() => {
+                expect(installMethod.stub).to.have.been.called;
+                expect(installMethod.stub.callCount).to.equal(installCount);
+                installRecords.forEach((installRecord, index) => {
+                    const installArgs = installMethod.stub.args[index];
+                    expect(installArgs).to.have.length(2);
+                    expect(installArgs[0]).to.deep.equal(installRecord);
+                    expect(installArgs[1]).to.equal(args.dryRunInstall);
                 });
+            });
         });
 
         it('should report failure and reject the promise if any one of the installs fails', () => {
-            const failMethod = _reporterMock.mocks.fail;
-            const flushMethod = _reporterMock.mocks.flush;
-
             const repoCount = _testValues.getNumber(10, 5);
             const repos = _getPrivateContainerRepos(repoCount);
             _manifestMock.instance.privateContainerRepos = repos;
@@ -1016,86 +993,48 @@ describe('[apply command]', () => {
 
             const expectedError = 'Error installing component';
 
-            expect(failMethod.stub).to.not.have.been.called;
-            expect(flushMethod.stub).to.not.have.been.called;
-
             const ret = _execHandler();
-            ret.catch((ex) => {
-                // Eat this exception to avoid warnings.
-                // We are checking for rejection later.
-            });
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(
-                        _helmMock.mocks.uninstall,
-                        uninstallCount
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(
+            _runUntilTask(Tasks.INSTALL_COMPONENTS)
+                .then(() =>
+                    _bulkComplete(
                         _helmMock.mocks.install,
                         failIndex * 2,
                         failIndex
-                    );
-                })
-                .then(() => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret)
-                        .to.be.rejectedWith(expectedError)
-                        .then(() => {
-                            expect(failMethod.stub).to.have.been.calledOnce;
-                            expect(flushMethod.stub).to.have.been.calledOnce;
-                        });
-                });
+                    )
+                )
+                .finally(() => _reporterMock.mocks.flush.resolve());
+
+            return expect(ret)
+                .to.be.rejectedWith(expectedError)
+                .then(_verifyCleanup());
         });
 
         it('should handle flush errors gracefully', () => {
             const flushMethod = _reporterMock.mocks.flush;
+            const loadMethod = _manifestMock.mocks.load;
 
             expect(flushMethod.stub).to.not.have.been.called;
             const ret = _execHandler();
 
-            return _manifestMock.mocks.load
-                .reject(new Error('something went wrong'))
+            _runUntilTask(Tasks.LOAD_MANIFEST)
+                .then(() =>
+                    loadMethod.reject(new Error('something went wrong'))
+                )
                 .then(undefined, (err) => {
                     // Eat this exception to avoid warnings.
                     // We are checking for rejection later.
                 })
-                .then(() => {
-                    return _reporterMock.mocks.flush
+                .then(() =>
+                    _reporterMock.mocks.flush
                         .reject(new Error('flush failed'))
                         .catch((ex) => {
                             // Eat this exception to avoid warnings.
                             // We are checking for rejection later.
-                        });
-                })
-                .then(() => {
-                    return expect(ret).to.be.rejected;
-                });
+                        })
+                );
+
+            return expect(ret).to.be.rejected;
         });
 
         it('should report success and resolve the promise if all tasks succeed', () => {
@@ -1121,46 +1060,14 @@ describe('[apply command]', () => {
 
             const ret = _execHandler();
 
-            return _manifestMock.mocks.load
-                .resolve()
-                .then(() => {
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.fetchContainerCredentials,
-                        repoCount
-                    );
-                })
-                .then((credentials) => {
-                    const secretList = _buildSecretList(credentials, repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.createImagePullSecret,
-                        secretList.length
-                    );
-                })
-                .then(() => {
-                    const serviceAccountList = _buildServiceAccountList(repos);
-                    return _bulkComplete(
-                        _credentialManagerMock.mocks.applyImagePullSecrets,
-                        serviceAccountList.length
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(
-                        _helmMock.mocks.uninstall,
-                        uninstallCount
-                    );
-                })
-                .then(() => {
-                    return _bulkComplete(_helmMock.mocks.install, installCount);
-                })
-                .then(() => {
-                    return _reporterMock.mocks.flush.resolve();
-                })
-                .then(() => {
-                    return expect(ret).to.be.fulfilled.then(() => {
-                        expect(successMethod.stub).to.have.been.calledOnce;
-                        expect(flushMethod.stub).to.have.been.calledOnce;
-                    });
-                });
+            _runUntilTask(Tasks.END).then(() =>
+                _reporterMock.mocks.flush.resolve()
+            );
+
+            return expect(ret).to.be.fulfilled.then(() => {
+                expect(successMethod.stub).to.have.been.calledOnce;
+                expect(flushMethod.stub).to.have.been.calledOnce;
+            });
         });
     });
 });
